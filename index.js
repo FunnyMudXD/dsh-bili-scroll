@@ -1545,6 +1545,10 @@ export function apply(ctx, config) {
     if (cfg.autoComment || cfg.replyToComments) list.push('bili_reply')   // 只有真要发评论才给这只
     // ⭐ 三连：只有开着且今天还有额度时，才把 bili_triple 交给那一轮（关着 = 模型连名字都看不到）
     if (tripleLeftToday() > 0) list.push('bili_triple')
+    /* ⭐ 私信（2026-10-20 修）：以前白名单里**根本没有** bili_send_message
+     *    ⇒ 用户开了「评论 + 私信」，模型那一轮却找不到发私信的工具，只能在报告里写"发不出去"。
+     *    现在：dmMode 不是 off、而且填了收件人 UID，才把这只工具交出去。 */
+    if (cfg.dmMode && cfg.dmMode !== 'off' && Number(cfg.dmUid) > 0) list.push('bili_send_message')
     return list
   }
 
