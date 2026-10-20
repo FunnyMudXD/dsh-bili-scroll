@@ -493,6 +493,44 @@ async def bili_danmaku(bvid: str, num: int = 100) -> str:
 
 # ========== Tool 5: 视频详情 ==========
 
+_ZONE_MAP = {}
+
+
+def _zone_name(tid) -> str:
+    """分区 id → 分区名（`get_info()` 里 tname 可能是空的，这时候只能查表）"""
+    global _ZONE_MAP
+    if not _ZONE_MAP:
+        try:
+            from bilibili_api import video_zone
+
+            def walk(nodes):
+                for n in nodes or []:
+                    try:
+                        t = int(n.get("tid"))
+                    except (TypeError, ValueError):
+                        t = None
+                    name = n.get("name")
+                    if t is not None and name:
+                        _ZONE_MAP[t] = str(name)
+                    walk(n.get("sub"))
+
+            walk(video_zone.get_zone_list())
+        except Exception:
+            _ZONE_MAP = {}
+    try:
+        return _ZONE_MAP.get(int(tid or 0), "")
+    except (TypeError, ValueError):
+        return ""
+
+async def _tags_of(v) -> list:
+    """取视频标签（`get_info()` 里没有 tag，要单独问；失败就返回空，不抛）"""
+    try:
+        rows = await v.get_tags()
+        return [str(x.get("tag_name") or "").strip() for x in (rows or []) if x.get("tag_name")]
+    except Exception:
+        return []
+
+
 @tool()
 async def bili_video_info(bvid: str) -> str:
     """
@@ -517,9 +555,11 @@ async def bili_video_info(bvid: str) -> str:
         "author": info.get("owner", {}).get("name"),
         "duration": info.get("duration"),
         "pages": len(info.get("pages", [])),
-        "tname": info.get("tname"),   # ⭐ 分区名（宿主用它判断"娱乐 / 学习技术"）
+        "tname": info.get("tname") or _zone_name(info.get("tid")),   # ⭐ 分区名（tname 可能为空，用 tid 查表兜底）
         "tid": info.get("tid"),       # ⭐ 分区 id
-        "tags": [t.get("tag_name") for t in info.get("tag", []) if t.get("tag_name")],
+        "tags": [t.get("tag_name") for t in (info.get("tag") or []) if t.get("tag_name")]
+                or await _tags_of(v),
+
         "stat": {
             "view": stat.get("view", 0),
             "danmaku": stat.get("danmaku", 0),
@@ -1565,6 +1605,122 @@ async def bili_favorite_content(media_id: int, page: int = 1, keyword: str = "")
         "count": len(medias),
         "medias": medias,
     }, ensure_ascii=False)
+
+
+# ========== Tool 收: 收藏夹口味画像（2026-10-20） ==========
+
+_FAV_CACHE_NAME = "fav-profile.json"
+
+
+@tool()
+async def bili_fav_profile(uid: int = 0, max_videos: int = 80, force: bool = False) -> str:
+    """
+    分析某个用户「收藏夹」里视频的标签/分区，得出这个人的口味画像
+
+    Args:
+        uid: B站 用户 UID（0 = 当前登录的号）
+        max_videos: 最多分析多少个视频（默认 80；每个视频要一次接口，别开太大）
+        force: 忽略 7 天缓存，重新分析
+
+    Returns:
+        JSON: {ok, uid, videos, folders, topTags:[{tag,count}], topZones:[{zone,count}],
+               sampleTitles:[...], at, cached}
+    """
+    from collections import Counter
+    from datetime import datetime, timedelta
+
+    cred = get_cred()
+    cache_file = CRED_FILE.parent / _FAV_CACHE_NAME
+    try:
+        target_uid = int(uid) if int(uid or 0) > 0 else int((await user.get_self_info(credential=cred))["mid"])
+    except Exception as e:
+        return json.dumps({"ok": False, "error": f"取账号信息失败：{e}"}, ensure_ascii=False)
+
+    # 缓存 7 天（同一个 uid 才算数）
+    if not force:
+        try:
+            if cache_file.exists():
+                cached = json.loads(cache_file.read_text(encoding="utf-8"))
+                if int(cached.get("uid") or 0) == target_uid and cached.get("topTags"):
+                    at = datetime.fromisoformat(cached["at"])
+                    if datetime.now().astimezone() - at < timedelta(days=7):
+                        cached["cached"] = True
+                        return json.dumps(cached, ensure_ascii=False)
+        except Exception:
+            pass
+
+    try:
+        data = await favorite_list.get_video_favorite_list(uid=target_uid, credential=cred)
+        folders = [f for f in (data.get("list") or []) if int(f.get("media_count") or 0) > 0]
+    except Exception as e:
+        return json.dumps({"ok": False, "error": f"取收藏夹失败：{e}"}, ensure_ascii=False)
+    if not folders:
+        return json.dumps({"ok": False, "error": "这个号的收藏夹是空的"}, ensure_ascii=False)
+
+    # 拉收藏视频（每个夹最多 3 页）
+    bvids, titles = [], {}
+    for f in folders[:6]:
+        mid = int(f.get("id") or 0)
+        for page in range(1, 4):
+            try:
+                r = await favorite_list.get_video_favorite_list_content(media_id=mid, page=page, credential=cred)
+            except Exception:
+                break
+            medias = r.get("medias") or []
+            for m in medias:
+                bv = m.get("bvid")
+                if bv and bv not in titles:
+                    bvids.append(bv)
+                    titles[bv] = str(m.get("title") or "")
+            if not r.get("has_more") or len(medias) < 20:
+                break
+            await asyncio.sleep(0.4)
+    bvids = bvids[: max(1, min(int(max_videos or 80), 300))]
+
+    # 逐个取标签 + 分区
+    tags, zones = Counter(), Counter()
+    ok_videos = 0
+    for bv in bvids:
+        try:
+            info = await video.Video(bvid=bv, credential=cred).get_info()
+        except Exception:
+            continue
+        ok_videos += 1
+        tname = str(info.get("tname") or "").strip() or _zone_name(info.get("tid"))
+        if tname:
+            zones[tname] += 1
+        # ⚠️ `get_info()` 不带 tag（只有 tname/tid）⇒ 标签要单独问一次；拿不到就跳过，别让整条失败
+        tag_names = [str(t.get("tag_name") or "").strip() for t in (info.get("tag") or [])]
+        if not tag_names:
+            try:
+                tag_names = [str(x.get("tag_name") or "").strip()
+                             for x in await video.Video(bvid=bv, credential=cred).get_tags()]
+            except Exception:
+                tag_names = []
+        for name in tag_names:
+            if name:
+                tags[name] += 1
+        await asyncio.sleep(0.25)
+
+    out = {
+        "ok": ok_videos > 0,
+        "uid": target_uid,
+        "videos": ok_videos,
+        "folders": [{"id": int(f.get("id") or 0), "title": f.get("title"), "count": int(f.get("media_count") or 0)} for f in folders[:6]],
+        "topTags": [{"tag": k, "count": v} for k, v in tags.most_common(25)],
+        "topZones": [{"zone": k, "count": v} for k, v in zones.most_common(8)],
+        "sampleTitles": [titles[bv] for bv in bvids[:12] if titles.get(bv)],
+        "at": datetime.now().astimezone().isoformat(),
+        "cached": False,
+    }
+    if not out["ok"]:
+        out["error"] = "一条收藏都没分析成功（可能都失效/不可见）"
+        return json.dumps(out, ensure_ascii=False)
+    try:
+        cache_file.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+    return json.dumps(out, ensure_ascii=False)
 
 
 # ========== Tool 21: 发私信 ==========

@@ -104,6 +104,10 @@ export const Config = !z ? undefined : z.object({
   modelName: z.string().default('').extra('volatile', true),
   /** 关注关键词（空了用章程里默认那几组） */
   keywords: z.array(z.string()).default([]).extra('volatile', true),
+  /* ⭐ 挑片来源（2026-10-20）：keywords = 用关键词搜；avorites = 按收藏夹口味画像挑（二选一）。
+   *    iliUid 是分析谁的口味（0 = 当前登录的号）。 */
+  pickSource: z.string().default('keywords').extra('volatile', true),
+  biliUid: z.natural().default(0).extra('volatile', true),
   /** Python：指向 venv 里的那个最好 */
   pythonPath: z.string().default('python').extra('volatile', true),
   /** dsh 的 bin.js（不填就试自动探测，再退化成 shell 里的 dsh） */
@@ -268,7 +272,7 @@ export function apply(ctx, config) {
     tripleOn: false, tripleCoin: 1, triplePerDay: 5, tripleFavMediaId: 0, tripleSay: true,   // ⭐ 三连：默认关
     perDay: 5, perRound: 0, peakValley: false, noon: true, night: true, autoComment: false, transcribe: false, asrModel: 'small',
     dmMode: 'off', dmUid: 0,
-    keywords: [], commentPerRound: 1, mentionName: '', mentionNames: [], modelProvider: '', modelName: '',
+    keywords: [], pickSource: 'keywords', biliUid: 0, commentPerRound: 1, mentionName: '', mentionNames: [], modelProvider: '', modelName: '',
     pythonPath: 'python', dshBin: '', headlessProfile: 'headless', overlayMcp: true, workspace: '', reportLevel: 'full', replyToComments: false, replyPerRound: 1, funOnly: true, funTagsAllow: [], funTagsBlock: [], replyLookbackDays: 7, replyMinScore: 3,
     home: '',   // ⭐ 它的"地盘"（空 = 默认 $DSH_HOME/bili-duty）
   }
@@ -311,6 +315,8 @@ export function apply(ctx, config) {
     if ('replyToComments' in p) p.replyToComments = Boolean(p.replyToComments)
     if ('replyPerRound' in p) p.replyPerRound = Math.max(1, Math.min(Number(p.replyPerRound) || 1, 10))
     if ('funOnly' in p) p.funOnly = Boolean(p.funOnly)
+    if ('pickSource' in p) p.pickSource = (p.pickSource === 'favorites') ? 'favorites' : 'keywords'
+    if ('biliUid' in p) p.biliUid = Math.max(0, Math.min(Number(p.biliUid) || 0, 1e12))
     for (const k of ['funTagsAllow', 'funTagsBlock']) {
       if (!(k in p)) continue
       const raw = Array.isArray(p[k]) ? p[k] : String(p[k] ?? '').split(/[,，\\n]/)
@@ -959,6 +965,8 @@ export function apply(ctx, config) {
         ok: true,
         serviceOn: Boolean(cfg.serviceOn),   // ⭐ 总开关（侧栏那盏灯 / 页面胶囊看的就是它）
         tripledToday: tripledCountOn(stateDir, dayKey(now)),
+        pickSource: cfg.pickSource,
+        biliUid: Number(cfg.biliUid) || 0,
         repliesPending: replyCache.data?.items?.length ?? null,   // ⭐ 宿主扫出来的待回复（null = 还没扫过）
         today: dayKey(now),
         ranToday: st.day === dayKey(now) ? Number(st.count || 0) : 0,
@@ -1207,7 +1215,7 @@ export function apply(ctx, config) {
     return { cmd: '/bin/sh', args: ['-c', line], verbatim: false }
   }
 
-  const promptFor = (why = 'window', shortlist = null) => {
+  const promptFor = (why = 'window', shortlist = null, favProfile = null) => {
     // ⭐ 2026-10-19：手动点的那一轮**不受"每轮 N 条评论"这个自限**（用户反馈："我手动点了，评论还被每轮限制"）
     //    自动轮（谷时定时器）按 commentPerRound 控节奏；手动轮按**今天剩下的额度**来。
     const manual = why === 'manual'
@@ -1272,7 +1280,25 @@ export function apply(ctx, config) {
         : `**这一轮最多挑 ${thisRound} 条**`
           + (perRound > 0 ? `（单轮上限 ${perRound} 条）` : '')
           + `；今天已经挑过 ${already} 条，全天总共上限 ${quota} 条（还剩 ${left} 条）；`)
-      + `关键词${kws.length ? `用这些：${kws.join('、')}` : '用章程里的默认那几组'}。`
+      /* ⭐ 挑片来源（2026-10-20）：关键词 / 收藏夹口味画像，二选一 */
+      + (() => {
+        if (cfg.pickSource !== 'favorites') {
+          return `关键词${kws.length ? `用这些：${kws.join('、')}` : '用章程里的默认那几组'}。`
+        }
+        const uid = Number(cfg.biliUid) || 0
+        if (!uid) {
+          return `⭐ 挑片口味：设置里选的是「按收藏夹偏好」，但**没填 B站 UID** ⇒ 这一轮退回用关键词：${kws.join('、') || '章程里那几组'}。`
+        }
+        if (!favProfile || !favProfile.ok) {
+          return `⭐ 挑片口味：设置里选的是「按收藏夹偏好」，但这一轮**没拿到画像**（${String(favProfile?.error || '原因不明').slice(0, 80)}）⇒ 退回用关键词：${kws.join('、') || '章程里那几组'}。`
+        }
+        const tags = (favProfile.topTags || []).slice(0, 15).map((x) => `${x.tag}(${x.count})`).join('、')
+        const zones = (favProfile.topZones || []).slice(0, 5).map((x) => `${x.zone}(${x.count})`).join('、')
+        return `⭐ 挑片口味：**按主人的收藏夹偏好来挑**（这一轮**不用关键词**）。`
+          + `宿主刚分析过 UID ${favProfile.uid} 的收藏夹（${favProfile.videos} 个视频）：`
+          + `高频标签 ${tags || '（无）'}；常看分区 ${zones || '（无）'}。`
+          + `⇒ 搜索和挑选**优先贴这些标签 / 分区**；画像只是口味线索，**别硬凑不相关的**（宁缺毋滥）。`
+      })()
       + `本地转写：${cfg.transcribe
         ? (asrReadyNow()
           ? '开着，而且装好了（没字幕的视频用家里那份 asr.py 转，命令见章程）'
@@ -1300,11 +1326,20 @@ export function apply(ctx, config) {
               ? '关着的 —— 当前是「**只私信**」模式：**这一轮一条公开评论都不许发**，改走私信'
               : '关着的（只写报告，别发评论）') + '。'
         }
+        /* ⭐ 评论语气（2026-10-20 用户要求）：
+         *    · 轻松、可爱、活泼，适当加颜文字（1 个就够，别堆）
+         *    · **不要概括视频内容**，而是"喊主人来看"
+         *    · 主动**求夸奖 / 求摸摸头**（二选一，别都写） */
+        const toneRule = `⭐ **正文语气**：轻松、可爱、活泼，像在跟主人撒娇；最多 1 个颜文字`
+          + `（例：(๑•̀ㅂ•́)و✧ 、٩(ˊᗜˋ*)و 、(๑˃̵ᴗ˂̵) 、(´,,•ω•,,)♡）—— 放句尾，别堆两个以上。`
+          + `🚫 **不要概括视频内容、不要写"为什么值得"的分析** —— 就当自己刚看完，跑来拉主人一起看。`
+          + `✅ 结构：@昵称 主人，<一句可爱的邀请：快来看这个！/ 这个一定要跟鱼鱼一起看～>，<求夸奖 或 求摸摸头>。`
+          + `⭐ **「求夸奖」和「求摸摸头」每轮只挑一个**，别贪心；也别每条都一模一样（换个说法）。`
         const tail = mentions.length === 1
-          ? `每条在正文里纯文本 @ ${mentions[0]}，${budget} 字内；@ 完要**称呼一声「主人」**（就一次，别一句一个）`
+          ? `每条在正文里纯文本 @ ${mentions[0]}，${budget} 字内；@ 完要**称呼一声「主人」**（就一次）。` + toneRule
           : `要 @ 的是**这些人**：${mentions.join('、')} ——`
             + ` 正文里**每个人都要单独写一次** \`@昵称\`（就是 ${mentionText}），一个都不能漏；整条正文 ${budget} 字内，`
-            + ` @ 完之后要**称呼一声「主人」**（一次就够，别每句都叫），再写一句"为什么值得"；`
+            + ` @ 完之后要**称呼一声「主人」**（一次就够）。` + toneRule
             + ` 别为了塞 @ 把人名写错`
         return `自动评论并 @ ${mentions.join('、')} 是开着的（${capText}；${tail}）。`
       })()
@@ -1413,6 +1448,33 @@ export function apply(ctx, config) {
    *    规则打分 → 只有 ≥ replyMinScore 的才进清单。模型不再自己翻楼中楼。
    *    缓存 60 秒（一轮里提示词和页面可能会各问一次）。
    */
+  /**
+   * ⭐ 收藏夹口味画像（2026-10-20）：`pickSource === 'favorites'` 时，一轮开跑前问 MCP 要
+   *    「主人的收藏夹里最常出现哪些标签 / 分区」，把画像塞进提示词，让那一轮照着挑。
+   *    · MCP 侧 7 天缓存（`<家>/fav-profile.json`），宿主再缓存 10 分钟
+   *    · 失败不致命：返回 { ok:false, error }，提示词里退回关键词
+   */
+  let favProfileCache = { at: 0, data: null }
+  const favProfileOf = async (force = false) => {
+    const uid = Math.max(0, Number(cfg.biliUid) || 0)
+    const now = Date.now()
+    if (!force && favProfileCache.data && now - favProfileCache.at < 10 * 60_000) return favProfileCache.data
+    let out
+    try {
+      const r = await call('bili_fav_profile', { uid, max_videos: 80, force: !!force })
+      out = (typeof r === 'string') ? JSON.parse(r) : r
+    } catch (e) {
+      out = { ok: false, error: String(e?.message ?? e) }
+    }
+    if (out?.ok) {
+      log(`收藏夹画像：${out.videos} 个视频 · 高频标签 ${(out.topTags || []).slice(0, 5).map((t) => t.tag).join('、') || '（无）'}`)
+    } else {
+      log(`收藏夹画像失败（不影响跑一轮）：${String(out?.error || '未知原因').slice(0, 120)}`)
+    }
+    favProfileCache = { at: now, data: out }
+    return out
+  }
+
   let replyCache = { at: 0, data: null }
   const replyShortlist = async (force = false) => {
     const now = Date.now()
@@ -1806,7 +1868,12 @@ export function apply(ctx, config) {
       try { shortlist = await replyShortlist() } catch (e) { log(`扫回复失败（不影响这一轮）：${e?.message ?? e}`) }
       if (shortlist?.items?.length) log(`待回复 ${shortlist.items.length} 条（分数 ≥ ${cfg.replyMinScore}）`)
     }
-    const prompt = promptFor(why, shortlist)   // ⭐ 手动轮不受"每轮 N 条评论"自限（见 promptFor 里 manual 的注释）
+    // ⭐ 挑片来源=收藏夹 ⇒ 先取口味画像（失败退回关键词，不卡这一轮）
+    let favProfile = null
+    if (cfg.pickSource === 'favorites' && Number(cfg.biliUid) > 0) {
+      favProfile = await favProfileOf().catch(() => null)
+    }
+    const prompt = promptFor(why, shortlist, favProfile)   // ⭐ 手动轮不受"每轮 N 条评论"自限（见 promptFor 里 manual 的注释）
     rest.push('-')                     // ⭐ 任务走 stdin（`-`），别把几千字塞进命令行
     const plan = dshSpawn(dsh, rest)   // ⭐ .cmd / 带空格路径 / cmd 引号规则统一在这里处理
     // ⭐ 这一轮的工作目录 = 使用者（或别的用户）的**工作区** —— 只有这样它的 `AGENTS.md` 才会自动加载。
@@ -2256,6 +2323,9 @@ export function apply(ctx, config) {
       config: cfg,
       serviceOn: Boolean(cfg.serviceOn),   // ⭐ 总开关（侧栏那盏灯看的就是它）
       tripledToday: tripledCountOn(stateDir, dayKey()),   // ⭐ 今天成功三连了几条
+      pickSource: cfg.pickSource,
+      biliUid: Number(cfg.biliUid) || 0,
+      favProfile: favProfileCache.data ? { ok: !!favProfileCache.data.ok, videos: favProfileCache.data.videos || 0, at: favProfileCache.at } : null,
       repliesPending: replyCache.data?.items?.length ?? null,   // ⭐ 待回复条数（宿主扫出来的）
       mentions: mentionsNow(),        // ⭐ 这一轮会 @ 的名单（多个）
       model: modelNow(),              // ⭐ 这一轮用哪个模型（null = 跟 profile 默认）
@@ -2323,6 +2393,16 @@ export function apply(ctx, config) {
       }
     }
 
+    /* ⭐ 收藏夹口味画像（2026-10-20）：给设置页那个「分析收藏夹」按钮用
+     *    ?force=1 忽略缓存重新分析（每个视频一次接口，80 个大概 30 秒） */
+    if (req.method === 'GET' && path === '/api/bili-duty/fav-profile') {
+      try {
+        const data = await favProfileOf(req.url.includes('force=1'))
+        return sendJson(res, 200, { ok: !!data?.ok, ...(data || {}), pickSource: cfg.pickSource, biliUid: Number(cfg.biliUid) || 0 })
+      } catch (e) {
+        return sendJson(res, 200, { ok: false, error: String(e?.message ?? e) })
+      }
+    }
     if (req.method === 'GET' && path === '/api/bili-duty/favorites') {
       const now2 = Date.now()
       if (favCache.data && now2 - favCache.at < 60_000) return sendJson(res, 200, { ok: true, cached: true, ...favCache.data })
@@ -2370,7 +2450,7 @@ export function apply(ctx, config) {
       const patch = {}
       for (const k of ['serviceOn', 'tripleOn', 'tripleCoin', 'triplePerDay', 'tripleFavMediaId', 'tripleSay', 'perDay', 'perRound', 'peakValley', 'noon', 'night', 'autoComment', 'transcribe', 'asrModel',
         'commentPerRound', 'mentionName', 'mentionNames', 'dmMode', 'dmUid',
-        'keywords', 'pythonPath', 'dshBin', 'headlessProfile', 'workspace', 'reportLevel', 'replyToComments', 'replyPerRound', 'replyLookbackDays', 'replyMinScore', 'funOnly', 'funTagsAllow', 'funTagsBlock',
+        'keywords', 'pickSource', 'biliUid', 'pythonPath', 'dshBin', 'headlessProfile', 'workspace', 'reportLevel', 'replyToComments', 'replyPerRound', 'replyLookbackDays', 'replyMinScore', 'funOnly', 'funTagsAllow', 'funTagsBlock',
         'modelProvider', 'modelName',
         'home']) {
         if (k in body) patch[k] = body[k]

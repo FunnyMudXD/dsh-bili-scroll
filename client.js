@@ -355,6 +355,11 @@ window.__ModuleLoader__.load({
       /* ⭐ 标签规则草稿（2026-10-19） */
       const [allowTagsDraft, setAllowTagsDraft] = React.useState(null)
       const [blockTagsDraft, setBlockTagsDraft] = React.useState(null)
+      /* ⭐ 挑片来源 / 收藏夹画像（2026-10-20） */
+      const [uidDraft, setUidDraft] = React.useState(null)
+      const [favInfo, setFavInfo] = React.useState(null)
+      const [favBusy, setFavBusy] = React.useState(false)
+      const [favMsg, setFavMsg] = React.useState('')
       const [dmMode, setDmMode] = React.useState(null)      // 投递方式：off / only / both
       const [mention, setMention] = React.useState(null)
       /* ⭐ 多 @（一行一个昵称）+ 模型选择（2026-10-19 加） */
@@ -414,6 +419,7 @@ window.__ModuleLoader__.load({
         if (cfg && tripleFav === null) setTripleFav(String(cfg.tripleFavMediaId ?? 0))
         if (cfg && allowTagsDraft === null) setAllowTagsDraft((cfg.funTagsAllow || []).join('\n'))
         if (cfg && blockTagsDraft === null) setBlockTagsDraft((cfg.funTagsBlock || []).join('\n'))
+        if (cfg && uidDraft === null) setUidDraft(String(cfg.biliUid ?? 0))
         if (cfg && mention === null) setMention(cfg.mentionName || '')
         if (cfg && mentionsDraft === null) {
           const list = Array.isArray(cfg.mentionNames) && cfg.mentionNames.length
@@ -1018,6 +1024,47 @@ window.__ModuleLoader__.load({
         /* ── 关注什么 / 在哪儿刷 ── */
         h('div', { 'data-bd-sec': '' },
           h('div', { 'data-bd-h': '' }, '关注什么'),
+          /* ⭐ 挑片来源二选一（2026-10-20）：关键词 / 收藏夹口味画像 */
+          h('div', { 'data-bd-row': '' },
+            h('div', { 'data-bd-grow': '' },
+              h('div', { 'data-bd-label': '' }, '怎么决定挑哪些视频'),
+              h('div', { 'data-bd-note': '' }, '二选一：用关键词搜，或者分析你的收藏夹照着口味挑')),
+            h('select', {
+              'data-bd-input': '', value: (cfg.pickSource === 'favorites') ? 'favorites' : 'keywords',
+              onChange: (e) => patch({ pickSource: e.target.value }, '挑片来源'),
+            },
+              h('option', { value: 'keywords' }, '按关键词'),
+              h('option', { value: 'favorites' }, '按我的收藏夹口味'))),
+          (cfg.pickSource === 'favorites') ? h('div', { 'data-bd-sub': '' },
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, 'B站 UID'),
+                h('div', { 'data-bd-note': '' }, '要分析谁的口味；留 0 = 用当前登录的这个号')),
+              h('input', {
+                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0,
+                value: uidDraft ?? '', placeholder: '0',
+                onChange: (e) => setUidDraft(e.target.value),
+                onBlur: () => { const n = Math.max(0, Number(uidDraft) || 0); setUidDraft(String(n)); patch({ biliUid: n }, 'B站 UID') },
+              })),
+            h('div', { 'data-bd-row': '' },
+              h('button', {
+                'data-bd-btn': '', disabled: favBusy,
+                onClick: async () => {
+                  setFavBusy(true); setFavMsg('正在分析收藏夹…（每个视频要一次接口，大约 30 秒）')
+                  try {
+                    const d = await jget('/fav-profile?force=1')
+                    setFavInfo(d)
+                    setFavMsg(d.ok
+                      ? `分析了 ${d.videos} 个收藏视频：${(d.topTags || []).slice(0, 6).map((x) => x.tag).join('、') || '（无标签）'}`
+                      : `没分析成功：${d.error || '原因不明'}`)
+                  } catch (e) { setFavMsg('分析失败：' + String(e?.message ?? e)) } finally { setFavBusy(false) }
+                },
+              }, favBusy ? '分析中…' : '分析收藏夹'),
+              h('div', { 'data-bd-note': '' }, favMsg || '分析结果 7 天内复用；改了收藏夹可以再点一次')),
+            (favInfo?.ok && (favInfo.topTags || []).length) ? h('div', { 'data-bd-note': '' },
+              '🎯 口味画像：' + (favInfo.topTags || []).slice(0, 12).map((x) => `${x.tag}(${x.count})`).join('、')
+              + ((favInfo.topZones || []).length ? ` ｜ 常看分区：${favInfo.topZones.map((z) => z.zone).join('、')}` : '')) : null,
+            h('div', { 'data-bd-note': '' }, '⚠️ 选了「按收藏夹口味」就不再使用下面的关键词；画像拿不到时会自动退回关键词')) : null,
           h('textarea', {
             'data-bd-input': '', rows: 5, placeholder: '一行一个关键词；留空用内置那几组',
             value: kws ?? '', onChange: (e) => setKws(e.target.value),
