@@ -250,8 +250,18 @@ export function apply(ctx, config) {
   }
   const asrReadyNow = () => existsSync(asrPython()) && hasPkg(asrDir, 'faster_whisper')
 
+  /* ⭐ 本地时间戳（2026-10-20 修）：以前用 toISOString() = UTC，
+   *    日志里 18:39 写成 10:39，看着像"时区不对"。改成带偏移的本地时间。 */
+  const stamp = () => {
+    const d = new Date()
+    const p = (n, w = 2) => String(n).padStart(w, '0')
+    const off = -d.getTimezoneOffset()
+    const sign = off >= 0 ? '+' : '-'
+    const abs = Math.abs(off)
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}${sign}${p(Math.floor(abs / 60))}:${p(abs % 60)}`
+  }
   const log = (msg) => {
-    const line = `${new Date().toISOString()}  ${msg}`
+    const line = `${stamp()}  ${msg}`
     try { appendFileSync(logFile, line + '\n', 'utf8') } catch { /* 日志写不进去也不致命 */ }
     try { ctx.logger?.info?.(`[bili-duty] ${msg}`) } catch { /* 没有 logger 就算了 */ }
   }
@@ -781,7 +791,7 @@ export function apply(ctx, config) {
       const rid = String(rpid || '').trim() || '未取到 rpid'
       if (cur.includes(`| ${bvid} | ${rid}`)) return          // 已经有同一行，不重复写
       const prefix = String(text || '').replace(/\|/g, '｜').replace(/\s+/g, ' ').trim().slice(0, 20)
-      const when = new Date().toISOString().slice(0, 16).replace('T', ' ')
+      const when = stamp().slice(0, 16).replace('T', ' ')
       const row = `| ${bvid} | ${rid} | | ${when} | ${prefix} |`
       const lines = cur.split('\n')
       const i = lines.findIndex((l) => /^\|\s*---/.test(l))
@@ -1753,8 +1763,8 @@ export function apply(ctx, config) {
       //    原来每轮失败后 90 秒的复核都会追加一句「都复核过了（跳过的旧记录 5 条）」——
       //    一天下来报告尾部会堆出十几行一模一样的话，模型写报告时连"唯一锚点"都找不到 ✗
       const f = (r.checked.length > 0 || why === 'manual') ? appendVerifyToReport(stateDir, r.text) : ''
-      log(`评论复核结束（${why}）：查了 ${r.checked.length} 条${f ? `，已写进 ${f}` : '（没有新结果，不写报告）'}`)
-      return { ok: true, why, checked: r.checked, skipped: r.skipped, text: r.text, report: f || '' }
+      log(`评论复核结束（${why}）：查了 ${r.checked.length} 条${r.gaveUp ? `，放弃 ${r.gaveUp} 条（连续 3 次查不到）` : ''}${f ? `，已写进 ${f}` : '（没有新结果，不写报告）'}`)
+      return { ok: true, why, checked: r.checked, skipped: r.skipped, gaveUp: r.gaveUp || 0, text: r.text, report: f || '' }
     } catch (e) {
       log(`评论复核失败（${why}）：${e?.message ?? e}`)
       return { ok: false, why, error: String(e?.message ?? e) }
