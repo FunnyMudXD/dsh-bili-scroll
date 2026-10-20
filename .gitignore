@@ -1,0 +1,29 @@
+# 运行时数据（都不进仓库）
+.venv/
+node_modules/
+*.log
+out/
+digest/
+bin/
+uv-cache/
+uv-tools/
+uv-python/
+installed.txt
+duty.md.new
+local-override.json
+config.json
+seen.md
+replied.jsonl
+interacted.jsonl
+state.json
+verify-state.json
+bili_credential.json
+headless-overlay.yml
+.asr/
+*.tmp
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
