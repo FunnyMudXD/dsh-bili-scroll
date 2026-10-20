@@ -792,8 +792,8 @@ window.__ModuleLoader__.load({
         h('div', { 'data-bd-sec': '' },
           h('div', { 'data-bd-h': '' }, '它会不会替你说话'),
           h(ToggleRow, {
-            label: '回复评论（只回楼中楼）',
-            note: '默认关；开了之后它只回「直接回复到你那条评论下面的人」，不参与讨论',
+            label: '回复评论（回你评论区里的回复）',
+            note: '默认关；开了之后宿主会按「最近 N 天」扫自己发过的评论、拉到别人给我的回复并按规则打分，够分的才交给这一轮去回（模型不再自己翻楼）',
             on: sw('replyToComments'),
             onChange: (v) => patch({ replyToComments: v }, '回复评论'),
           }),
@@ -845,8 +845,8 @@ window.__ModuleLoader__.load({
                 onBlur: () => saveTagList('funTagsBlock', blockTagsDraft, '标签黑名单'),
               }))) : null,
           h(ToggleRow, {
-            label: '自动评论并 @ 你',
-            note: '默认关；开了之后它会在挑中的视频下面留评论，并 @ 你填的那个人',
+            label: '自动发评论',
+            note: '默认关；开了之后会在挑中的视频下面留一条评论（写「看完的观点」）。要不要 @ 你，看上面的「评论里 @ 我」',
             on: sw('autoComment'),
             onChange: (v) => patch({ autoComment: v }, '自动评论'),
           }),
@@ -854,7 +854,7 @@ window.__ModuleLoader__.load({
             h('div', { 'data-bd-row': '' },
               h('div', { 'data-bd-grow': '' },
                 h('div', { 'data-bd-label': '' }, '每轮最多发几条评论'),
-                h('div', { 'data-bd-note': '' }, '每条评论里 @ 一次下面那个人；填 0 = 这一轮不发评论')),
+                h('div', { 'data-bd-note': '' }, '填 0 = 这一轮不发评论')),
               h('input', {
                 'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0, max: 20,
                 value: perRound ?? '',
@@ -862,7 +862,7 @@ window.__ModuleLoader__.load({
                 // ⭐ 0 是合法值（= 这一轮不发评论）；范围与 index.js 的 clampPatch 一致（0–20）
                 onBlur: () => { const n = Math.max(0, Math.min(Number(perRound) || 0, 20)); setPerRound(String(n)); patch({ commentPerRound: n }, '每轮几条评论') },
               })),
-            h('div', { 'data-bd-label': '' }, '要 @ 谁（B站 昵称，可多个）'),
+            h('div', { 'data-bd-label': '' }, '要 @ 谁（B站 昵称，可多个）· 只在「评论里 @ 我」开着时用'),
             h('textarea', {
               'data-bd-input': '', rows: 3,
               value: mentionsDraft ?? '',
@@ -878,14 +878,14 @@ window.__ModuleLoader__.load({
             h('div', { 'data-bd-note': '' },
               (st.mentions && st.mentions.length)
                 ? `这一轮会分别 @：${st.mentions.map((n) => '@' + n).join(' ')}`
-                : '留空的话它就不发评论了 —— 因为评论存在的意义就是 @ 那一下'),
+                : '留空 = 不 @ 任何人（评论照样发）'),
             h('div', { 'data-bd-note': '' }, 'B站 的 @ 是纯文本：正文里写 `@昵称` 才会真的圈到人；多个就写多个，最多 8 个')) : null,
           h('div', { 'data-bd-label': '' }, '投递方式（评论 还是 私信）'),
           h('select', {
             'data-bd-input': '', value: dmMode ?? 'off',
             onChange: (e) => { setDmMode(e.target.value); patch({ dmMode: e.target.value }, '投递方式') },
           },
-            h('option', { value: 'off' }, '只发评论 —— 在视频下面 @ 你（默认）'),
+            h('option', { value: 'off' }, '只发评论 —— 在视频下面留言（默认）'),
             h('option', { value: 'only' }, '只私信 —— 一条公开评论都不发，最不打扰别人'),
             h('option', { value: 'both' }, '评论 + 私信 —— 两边都发')),
           (dmMode && dmMode !== 'off') ? h('div', { 'data-bd-sub': '' },
@@ -1071,6 +1071,7 @@ window.__ModuleLoader__.load({
               '🎯 口味画像：' + (favInfo.topTags || []).slice(0, 12).map((x) => `${x.tag}(${x.count})`).join('、')
               + ((favInfo.topZones || []).length ? ` ｜ 常看分区：${favInfo.topZones.map((z) => z.zone).join('、')}` : '')) : null,
             h('div', { 'data-bd-note': '' }, '⚠️ 选了「按收藏夹口味」就不再使用下面的关键词；画像拿不到时会自动退回关键词')) : null,
+          h('div', { 'data-bd-label': '' }, '关键词（只在上面选「按关键词」时用）'),
           h('textarea', {
             'data-bd-input': '', rows: 5, placeholder: '一行一个关键词；留空用内置那几组',
             value: kws ?? '', onChange: (e) => setKws(e.target.value),
