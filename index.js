@@ -816,7 +816,8 @@ export function apply(ctx, config) {
         }
       }
       // dmMode==='only' 时本轮根本不该发公开评论 —— 在工具层也一并挡掉（除非当场 force）
-      const commentOn = Boolean(cfg.autoComment && mentionsNow().length && cfg.dmMode !== 'only')
+      // ⭐ 2026-10-20：不 @ 模式（commentAtOwner=false）下，@ 名单可以为空 —— 否则用户一清空名单就再也不发评论了
+      const commentOn = Boolean(cfg.autoComment && (cfg.commentAtOwner === true ? mentionsNow().length > 0 : true) && cfg.dmMode !== 'only')
       if (!commentOn && !args.force) {
         return {
           ok: false,
@@ -1262,7 +1263,8 @@ export function apply(ctx, config) {
     // ⭐ 2026-10-19：`@` 支持多人 —— mentionsNow() 是唯一出口（mentionNames 优先，mentionName 兜底）
     const mentions = mentionsNow()
     const mentionText = mentions.length ? mentions.map((n) => `@${n}`).join(' ') : ''
-    const commentOn = Boolean(cfg.autoComment && mentions.length && cfg.dmMode !== 'only')
+    // ⭐ 2026-10-20：不 @ 模式不要求 @ 名单
+    const commentOn = Boolean(cfg.autoComment && (cfg.commentAtOwner === true ? mentions.length > 0 : true) && cfg.dmMode !== 'only')
     const dmOn = Boolean(cfg.dmMode !== 'off' && Number(cfg.dmUid) > 0)
     return `你是这个账号的 B站 助手。`
       + `下面是使用者的设定（如果有）—— **按它来**，别用你默认那套人格。`

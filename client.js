@@ -1,4 +1,4 @@
-﻿/**
+/**
  * dsh-bili-scroll —— 浏览器半端（**侧栏里的独立一页**，在「记忆系统」下面）
  * ============================================================================
  * ⭐ **client bundle 不是 ESM，是自注册脚本**（2026-10-14 从官方包里挖到的约定）：
@@ -360,6 +360,10 @@ window.__ModuleLoader__.load({
       const [favInfo, setFavInfo] = React.useState(null)
       const [favBusy, setFavBusy] = React.useState(false)
       const [favMsg, setFavMsg] = React.useState('')
+      /* ⭐ 回复窗口 / 回复线 / dsh 路径（2026-10-20 补：这三项以前只能在 config.json 里改） */
+      const [lookbackDraft, setLookbackDraft] = React.useState(null)
+      const [minScoreDraft, setMinScoreDraft] = React.useState(null)
+      const [dshBinDraft, setDshBinDraft] = React.useState(null)
       const [dmMode, setDmMode] = React.useState(null)      // 投递方式：off / only / both
       const [mention, setMention] = React.useState(null)
       /* ⭐ 多 @（一行一个昵称）+ 模型选择（2026-10-19 加） */
@@ -420,6 +424,9 @@ window.__ModuleLoader__.load({
         if (cfg && allowTagsDraft === null) setAllowTagsDraft((cfg.funTagsAllow || []).join('\n'))
         if (cfg && blockTagsDraft === null) setBlockTagsDraft((cfg.funTagsBlock || []).join('\n'))
         if (cfg && uidDraft === null) setUidDraft(String(cfg.biliUid ?? 0))
+        if (cfg && lookbackDraft === null) setLookbackDraft(String(cfg.replyLookbackDays ?? 7))
+        if (cfg && minScoreDraft === null) setMinScoreDraft(String(cfg.replyMinScore ?? 3))
+        if (cfg && dshBinDraft === null) setDshBinDraft(String(cfg.dshBin || ''))
         if (cfg && mention === null) setMention(cfg.mentionName || '')
         if (cfg && mentionsDraft === null) {
           const list = Array.isArray(cfg.mentionNames) && cfg.mentionNames.length
@@ -807,6 +814,26 @@ window.__ModuleLoader__.load({
                 value: replyPer ?? '',
                 onChange: (e) => setReplyPer(e.target.value),
                 onBlur: () => { const n = Math.max(1, Math.min(Number(replyPer) || 1, 10)); setReplyPer(String(n)); patch({ replyPerRound: n }, '每轮几条回复') },
+              })),
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, '回看几天'),
+                h('div', { 'data-bd-note': '' }, '只扫最近这些天自己发过的评论（1–30）')),
+              h('input', {
+                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 1, max: 30,
+                value: lookbackDraft ?? '',
+                onChange: (e) => setLookbackDraft(e.target.value),
+                onBlur: () => { const v = Math.max(1, Math.min(Number(lookbackDraft) || 7, 30)); setLookbackDraft(String(v)); patch({ replyLookbackDays: v }, '回看几天') },
+              })),
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, '回复线（分数）'),
+                h('div', { 'data-bd-note': '' }, '低于这个分数的不回；3 = 至少「像提问」或「相关 + 轻互动」')),
+              h('input', {
+                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0, max: 20,
+                value: minScoreDraft ?? '',
+                onChange: (e) => setMinScoreDraft(e.target.value),
+                onBlur: () => { const v = Math.max(0, Math.min(Number(minScoreDraft) || 0, 20)); setMinScoreDraft(String(v)); patch({ replyMinScore: v }, '回复线') },
               }))) : null,
           /* ⭐ 评论里 @ 不 @ 你（2026-10-20）：默认关 —— 评论就是"人设看完的观点"，不是来喊你的 */
           h(ToggleRow, {
@@ -1101,6 +1128,15 @@ window.__ModuleLoader__.load({
         /* ── 环境与账号 ── */
         h('div', { 'data-bd-sec': '' },
           h('div', { 'data-bd-h': '' }, '环境与账号'),
+          h('div', { 'data-bd-row': '' },
+            h('div', { 'data-bd-grow': '' },
+              h('div', { 'data-bd-label': '' }, 'dsh 路径（找不到 dsh 时才用）'),
+              h('div', { 'data-bd-note': '' }, '桌面版一般能自动找到；实在找不到时，填 dsh 的 bin.js 或 dsh.cmd 绝对路径')),
+            h('input', {
+              'data-bd-input': '', value: dshBinDraft ?? '', placeholder: '留空 = 自动找',
+              onChange: (e) => setDshBinDraft(e.target.value),
+              onBlur: () => patch({ dshBin: String(dshBinDraft || '').trim() }, 'dsh 路径'),
+            })),
           h('div', { 'data-bd-row': '' },
             h('button', { 'data-bd-btn': '', disabled: busy === 'install', onClick: onInstall },
               st.venvReady ? '重装主依赖' : '装主依赖（建 venv）'),
