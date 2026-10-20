@@ -1,4 +1,4 @@
-/**
+﻿/**
  * dsh-bili-scroll —— 浏览器半端（**侧栏里的独立一页**，在「记忆系统」下面）
  * ============================================================================
  * ⭐ **client bundle 不是 ESM，是自注册脚本**（2026-10-14 从官方包里挖到的约定）：
@@ -808,7 +808,13 @@ window.__ModuleLoader__.load({
                 onChange: (e) => setReplyPer(e.target.value),
                 onBlur: () => { const n = Math.max(1, Math.min(Number(replyPer) || 1, 10)); setReplyPer(String(n)); patch({ replyPerRound: n }, '每轮几条回复') },
               }))) : null,
+          /* ⭐ 评论里 @ 不 @ 你（2026-10-20）：默认关 —— 评论就是"人设看完的观点"，不是来喊你的 */
           h(ToggleRow, {
+            label: '评论里 @ 我',
+            note: '默认关：评论写成「看完的观点」，不 @ 任何人；打开才回到"喊你来看 + 求夸/求摸头"',
+            on: cfg.commentAtOwner === true,
+            onChange: (v) => patch({ commentAtOwner: v }, '评论里 @ 我'),
+          }),          h(ToggleRow, {
             label: '只评论娱乐视频',
             note: '默认开；学习/技术/教程/科普/评测类只写进报告，不发评论（也不三连）',
             on: sw('funOnly'),

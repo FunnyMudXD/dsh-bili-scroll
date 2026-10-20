@@ -1,4 +1,4 @@
-/**
+﻿/**
  * dsh-bili-scroll —— host 半端
  * ============================================================================
  * 它是什么：每天替你刷一轮 B站 的插件版。
@@ -106,6 +106,8 @@ export const Config = !z ? undefined : z.object({
   keywords: z.array(z.string()).default([]).extra('volatile', true),
   /* ⭐ 挑片来源（2026-10-20）：keywords = 用关键词搜；avorites = 按收藏夹口味画像挑（二选一）。
    *    iliUid 是分析谁的口味（0 = 当前登录的号）。 */
+  /** 评论里还 @ 不 @ 使用者（不 @ 时改成「人设自己的观点」） */
+  commentAtOwner: z.boolean().default(false).extra('volatile', true),
   pickSource: z.string().default('keywords').extra('volatile', true),
   biliUid: z.natural().default(0).extra('volatile', true),
   /** Python：指向 venv 里的那个最好 */
@@ -272,7 +274,7 @@ export function apply(ctx, config) {
     tripleOn: false, tripleCoin: 1, triplePerDay: 5, tripleFavMediaId: 0, tripleSay: true,   // ⭐ 三连：默认关
     perDay: 5, perRound: 0, peakValley: false, noon: true, night: true, autoComment: false, transcribe: false, asrModel: 'small',
     dmMode: 'off', dmUid: 0,
-    keywords: [], pickSource: 'keywords', biliUid: 0, commentPerRound: 1, mentionName: '', mentionNames: [], modelProvider: '', modelName: '',
+    keywords: [], commentAtOwner: false, pickSource: 'keywords', biliUid: 0, commentPerRound: 1, mentionName: '', mentionNames: [], modelProvider: '', modelName: '',
     pythonPath: 'python', dshBin: '', headlessProfile: 'headless', overlayMcp: true, workspace: '', reportLevel: 'full', replyToComments: false, replyPerRound: 1, funOnly: true, funTagsAllow: [], funTagsBlock: [], replyLookbackDays: 7, replyMinScore: 3,
     home: '',   // ⭐ 它的"地盘"（空 = 默认 $DSH_HOME/bili-duty）
   }
@@ -315,6 +317,7 @@ export function apply(ctx, config) {
     if ('replyToComments' in p) p.replyToComments = Boolean(p.replyToComments)
     if ('replyPerRound' in p) p.replyPerRound = Math.max(1, Math.min(Number(p.replyPerRound) || 1, 10))
     if ('funOnly' in p) p.funOnly = Boolean(p.funOnly)
+    if ('commentAtOwner' in p) p.commentAtOwner = Boolean(p.commentAtOwner)
     if ('pickSource' in p) p.pickSource = (p.pickSource === 'favorites') ? 'favorites' : 'keywords'
     if ('biliUid' in p) p.biliUid = Math.max(0, Math.min(Number(p.biliUid) || 0, 1e12))
     for (const k of ['funTagsAllow', 'funTagsBlock']) {
@@ -1321,27 +1324,38 @@ export function apply(ctx, config) {
             : `**这一轮是手动点的，但今天的额度已经用完了**（每天最多 ${quota} 条，已挑 ${already}）⇒ 只写报告，别再发评论`)
           : `每轮最多 ${commentCap} 条评论`
         if (!commentOn) {
-          return `自动评论并 @ ${mentions.length ? mentions.join('、') : '（还没填要 @ 谁）'} 是`
+          return `自动评论${cfg.commentAtOwner ? `并 @ ${mentions.length ? mentions.join('、') : '（还没填要 @ 谁）'}` : ''} 是`
             + (cfg.dmMode === 'only'
               ? '关着的 —— 当前是「**只私信**」模式：**这一轮一条公开评论都不许发**，改走私信'
               : '关着的（只写报告，别发评论）') + '。'
         }
-        /* ⭐ 评论语气（2026-10-20 用户要求）：
-         *    · 轻松、可爱、活泼，适当加颜文字（1 个就够，别堆）
-         *    · **不要概括视频内容**，而是"喊主人来看"
-         *    · 主动**求夸奖 / 求摸摸头**（二选一，别都写） */
-        const toneRule = `⭐ **正文语气**：轻松、可爱、活泼，像在跟主人撒娇；最多 1 个颜文字`
-          + `（例：(๑•̀ㅂ•́)و✧ 、٩(ˊᗜˋ*)و 、(๑˃̵ᴗ˂̵) 、(´,,•ω•,,)♡）—— 放句尾，别堆两个以上。`
-          + `🚫 **不要概括视频内容、不要写"为什么值得"的分析** —— 就当自己刚看完，跑来拉主人一起看。`
-          + `✅ 结构：@昵称 主人，<一句可爱的邀请：快来看这个！/ 这个一定要跟鱼鱼一起看～>，<求夸奖 或 求摸摸头>。`
-          + `⭐ **「求夸奖」和「求摸摸头」每轮只挑一个**，别贪心；也别每条都一模一样（换个说法）。`
-        const tail = mentions.length === 1
-          ? `每条在正文里纯文本 @ ${mentions[0]}，${budget} 字内；@ 完要**称呼一声「主人」**（就一次）。` + toneRule
-          : `要 @ 的是**这些人**：${mentions.join('、')} ——`
-            + ` 正文里**每个人都要单独写一次** \`@昵称\`（就是 ${mentionText}），一个都不能漏；整条正文 ${budget} 字内，`
-            + ` @ 完之后要**称呼一声「主人」**（一次就够）。` + toneRule
-            + ` 别为了塞 @ 把人名写错`
-        return `自动评论并 @ ${mentions.join('、')} 是开着的（${capText}；${tail}）。`
+        /* ⭐ 评论内容（2026-10-20 用户第二次修）：
+         *    · **不再 @ 使用者**（`commentAtOwner` 默认 false）
+         *    · **不总结视频内容**，改成「人设自己看完的观点 / 吐槽」
+         *    · 轻松、可爱、活泼，可以带网络热梗（1 个，贴切才用）
+         *    · @ 开关打开时，才回到"喊主人来看 + 求夸/求摸摸头"那套 */
+        const atOwner = cfg.commentAtOwner === true
+        const toneRule = atOwner
+          ? `⭐ **正文语气**：轻松、可爱、活泼，像在跟主人撒娇；最多 1 个颜文字`
+            + `（例：(๑•̀ㅂ•́)و✧ 、٩(ˊᗜˋ*)و 、(๑˃̵ᴗ˂̵) 、(´,,•ω•,,)♡）—— 放句尾，别堆两个以上。`
+            + `🚫 **不要概括视频内容、不要写"为什么值得"的分析** —— 就当自己刚看完，跑来拉主人一起看。`
+            + `✅ 结构：@昵称 主人，<一句可爱的邀请>，<求夸奖 或 求摸摸头>（**只挑一个**）。`
+            + `⭐ 也别每条都一模一样（换个说法）。`
+          : `⭐ **正文语气**：轻松、可爱、活泼，像小鲸鱼自己在吐槽/感叹 —— 就是个普通观众在评论区冒个泡；最多 1 个颜文字。`
+            + `✅ **写你自己的想法**：看完这条，你**觉得**怎么样（夸 / 吐槽 / 惊讶 / 共鸣 / 想接一句梗都行），`
+            + `要有**具体指向**（点出你被哪一下戳到），让人看得出你是真看了。`
+            + `🚫 **不要复述、不要概括视频内容**（别写"这个视频讲述了…""讲的是…"），也**不叫「主人」**。`
+            + `🔥 可以带 **1 个**网络热梗（例：绝了 / 绷不住了 / 真香 / 泪目 / 笑不活了 / 这波稳 / CPU干烧了 / 泰裤辣），`
+            + `**贴切才用，别硬塞、别堆两个**；过气的梗宁可不写。`
+        const tail = !atOwner
+          ? `整条正文 ${budget} 字内，**不要 @ 任何人**（一个 @ 和「主人」都别写）。` + toneRule
+          : mentions.length === 1
+            ? `每条在正文里纯文本 @ ${mentions[0]}，${budget} 字内；@ 完要**称呼一声「主人」**（就一次）。` + toneRule
+            : `要 @ 的是**这些人**：${mentions.join('、')} ——`
+              + ` 正文里**每个人都要单独写一次** \`@昵称\`（就是 ${mentionText}），一个都不能漏；整条正文 ${budget} 字内，`
+              + ` @ 完之后要**称呼一声「主人」**（一次就够）。` + toneRule
+              + ` 别为了塞 @ 把人名写错`
+        return `自动评论${atOwner ? `并 @ ${mentions.join('、')}` : '（**不 @ 任何人**）'} 是开着的（${capText}；${tail}）。`
       })()
       /* ⭐ 类型限制（2026-10-19）：只评论娱乐视频 —— 学习/技术型的写进报告、不发评论。
        *    宿主会在 bili_reply / bili_interact 里再拦一道；这里先说清楚，别浪费调用。 */
@@ -1374,7 +1388,7 @@ export function apply(ctx, config) {
           + `🔴 **顺序：先 \`bili_triple\` 三连、再 \`bili_reply\` 发评论**（反过来就来不及在评论里说）。`
           + `三连只给"这一轮真的挑中、要发评论"的那几条，别给没选的视频三连。`
           + (say
-            ? `只有 \`bili_triple\` 回的 ok=true 时，才允许在「主人」后面加一句自然的说明（三选一、只出现一次，别写成固定后缀）：`
+            ? `只有 \`bili_triple\` 回的 ok=true 时，才允许在正文**末尾**加一句自然的说明（三选一、只出现一次，别写成固定后缀）：`
               + `「顺手三连了」「币投了，收藏也点了」「三连支持一下」。`
             : `评论里**不要提**三连这件事。`)
           + `任何一项失败（like/coin/favorite 里出现 fail）⇒ **一个字都别提三连**，按普通评论发。`
@@ -2450,7 +2464,7 @@ export function apply(ctx, config) {
       const patch = {}
       for (const k of ['serviceOn', 'tripleOn', 'tripleCoin', 'triplePerDay', 'tripleFavMediaId', 'tripleSay', 'perDay', 'perRound', 'peakValley', 'noon', 'night', 'autoComment', 'transcribe', 'asrModel',
         'commentPerRound', 'mentionName', 'mentionNames', 'dmMode', 'dmUid',
-        'keywords', 'pickSource', 'biliUid', 'pythonPath', 'dshBin', 'headlessProfile', 'workspace', 'reportLevel', 'replyToComments', 'replyPerRound', 'replyLookbackDays', 'replyMinScore', 'funOnly', 'funTagsAllow', 'funTagsBlock',
+        'keywords', 'commentAtOwner', 'pickSource', 'biliUid', 'pythonPath', 'dshBin', 'headlessProfile', 'workspace', 'reportLevel', 'replyToComments', 'replyPerRound', 'replyLookbackDays', 'replyMinScore', 'funOnly', 'funTagsAllow', 'funTagsBlock',
         'modelProvider', 'modelName',
         'home']) {
         if (k in body) patch[k] = body[k]
