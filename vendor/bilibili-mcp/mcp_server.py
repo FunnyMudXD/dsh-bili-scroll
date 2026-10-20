@@ -15,6 +15,8 @@ B站数据采集 MCP 服务，支持 OpenClaw / Claude Code / Cursor / Cline
 #      ④ `bili_comments` 把抓取异常带进返回（风控 -412 不再伪装成"这条视频 0 条评论"）
 #      ⑤ `bili_reply` 回执带上 `rpid` / `rpid_str` / `root` / `parent`（判重表与评论复核要用）
 import asyncio
+import random
+import time
 import json
 import base64
 import os
@@ -52,6 +54,17 @@ _TRIPLE_LEFT = int(os.environ.get("BILI_TRIPLE_LEFT", "0") or 0)
 _TRIPLE_COIN = int(os.environ.get("BILI_TRIPLE_COIN", "1") or 1)
 _TRIPLE_FAV = int(os.environ.get("BILI_TRIPLE_FAV", "0") or 0)
 _TRIPLE_STATE = os.environ.get("BILI_TRIPLE_STATE", "")
+
+# ⭐ 三连的节流 + "投币被风控"闸（2026-10-20）
+#   实测证据（interacted.jsonl）：4 次三连挤在 2 秒内 ⇒ 投币接口回
+#     {"code": -401, "message": "非法访问",
+#      "data": {"ga_data": {"decisions": ["verify_captcha_level2"], "scene": "video_coin"}}}
+#   而**点赞 / 收藏都不触发** —— 也就是：投币要人机验证，脚本式连点必然被挡。
+#   ⇒ ① 每次三连之间至少隔 8~20 秒；② 三步之间留 0.6~1.4 秒；
+#     ③ 一旦被要求验证码，**接下来 3 小时不再三连**（不再产生"只有赞和藏"的半个三连）。
+_TRIPLE_LAST = 0.0
+_COIN_BLOCK_UNTIL = 0.0
+_COIN_BLOCK_NOTE = ""
 
 
 def tool():
@@ -676,6 +689,24 @@ async def bili_triple(bvid: str, coin: int = 1, mode: str = "triple", fav_media_
     cred = get_cred()
     out = {"ok": False, "like": "skip", "coin": "skip", "favorite": "skip", "folder": 0, "errors": []}
 
+    # ⭐ 投币还在"要人机验证"的冷却期 ⇒ **整条三连都不做**（2026-10-20）
+    #    宁可什么都不做，也不留一个"只有点赞和收藏"的半个三连（用户就是这么反馈的）。
+    global _TRIPLE_LAST, _COIN_BLOCK_UNTIL, _COIN_BLOCK_NOTE
+    if _COIN_BLOCK_UNTIL > time.time():
+        left = int(_COIN_BLOCK_UNTIL - time.time())
+        return json.dumps({
+            **out, "blocked": True, "coinBlocked": True,
+            "hint": f"投币正在被 B站 要求人机验证（风控），{left // 60} 分钟后才会再试；这期间不做三连（免得只做半套）。"
+                    + (f" 原话：{_COIN_BLOCK_NOTE[:80]}" if _COIN_BLOCK_NOTE else ""),
+        }, ensure_ascii=False)
+
+    # ⭐ 节流：两次三连之间至少隔 8~20 秒（连点是投币被风控的直接原因）
+    gap = random.uniform(8, 20)
+    wait = gap - (time.time() - _TRIPLE_LAST)
+    if _TRIPLE_LAST and wait > 0:
+        await asyncio.sleep(wait)
+    _TRIPLE_LAST = time.time()
+
     # ⭐ 宿主下发了闸门（这一轮是"刷B站"那一轮）⇒ 开关 / 额度 / 投币数 / 收藏夹一律用宿主的
     if _TRIPLE_ENV is not None:
         if not _TRIPLE_ON:
@@ -725,6 +756,7 @@ async def bili_triple(bvid: str, coin: int = 1, mode: str = "triple", fav_media_
                 out["errors"].append(f"一键三连失败：{e}")
     else:
         # 分步：点赞 → 投币 → 收藏（可指定收藏夹）
+        # ⚠️ 三步之间留 0.6~1.4 秒：连着打三个接口，投币最容易触发人机验证
         try:
             await v.like(True)
             out["like"] = "ok"
@@ -735,6 +767,7 @@ async def bili_triple(bvid: str, coin: int = 1, mode: str = "triple", fav_media_
                 out["like"] = "fail"
                 out["errors"].append(f"点赞失败：{e}")
 
+        await asyncio.sleep(random.uniform(0.6, 1.4))
         n = 1 if int(coin or 1) == 1 else 2
         try:
             await v.pay_coin(n, like=False)
@@ -744,7 +777,15 @@ async def bili_triple(bvid: str, coin: int = 1, mode: str = "triple", fav_media_
                 out["coin"] = "already"
             else:
                 out["coin"] = "fail"
-                out["errors"].append(f"投币失败：{e}")
+                msg = str(e)
+                out["errors"].append(f"投币失败：{msg}")
+                # ⭐ 命中"要人机验证"⇒ 记冷却 3 小时，后面不再做半套三连
+                if "verify_captcha" in msg or "-401" in msg:
+                    _COIN_BLOCK_UNTIL = time.time() + 3 * 3600
+                    _COIN_BLOCK_NOTE = msg
+                    out["coinBlocked"] = True
+
+        await asyncio.sleep(random.uniform(0.6, 1.4))
 
         try:
             from bilibili_api.utils.network import Api

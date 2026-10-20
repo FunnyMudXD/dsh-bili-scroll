@@ -1,4 +1,4 @@
-﻿/**
+/**
  * dsh-bili-scroll —— host 半端
  * ============================================================================
  * 它是什么：每天替你刷一轮 B站 的插件版。
@@ -920,9 +920,12 @@ export function apply(ctx, config) {
         errors: Array.isArray(obj?.errors) ? obj.errors.slice(0, 3) : [],
       }
       appendInteracted(stateDir, row)
+      // ⭐ 投币被风控要求人机验证（-401 / verify_captcha）时说清楚，别只报"失败"
+      const coinBlocked = Boolean(obj?.coinBlocked || obj?.blocked)
       log(`三连 ${bv}：赞=${row.like} 币=${row.coin} 藏=${row.favorite}${row.ok ? '（成功）' : '（失败）'}`
-        + (row.errors.length ? ' ' + row.errors[0] : ''))
-      return { ...row, ok: row.ok }
+        + (coinBlocked ? ' —— 投币被 B站 风控拦下（要人机验证），暂停三连一段时间' : '')
+        + (row.errors.length ? ' ' + String(row.errors[0]).slice(0, 100) : ''))
+      return { ...row, ok: row.ok, ...(coinBlocked ? { coinBlocked: true, hint: obj?.hint || '投币被风控要求人机验证' } : {}) }
     },
   })
 
