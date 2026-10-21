@@ -552,8 +552,13 @@ window.__ModuleLoader__.load({
           if (!r || !r.ok) { say('复核没跑成：' + ((r && r.error) || '未知原因'), 'warn'); return }
           const n = (r.checked || []).length
           const vis = (r.checked || []).filter((c) => c.visible === true).length
+          const gone = (r.checked || []).filter((c) => c.gone === true).length
+          const miss = n - vis - gone
           if (!n) say(r.text || '没有需要复核的记录', 'good')
-          else say(`复核完 ${n} 条：公开可见 ${vis} 条，其余「没查到」（可能还在审核 —— 看不到不等于没发出去）。结果也追加到今天的报告末尾了。`, vis ? 'good' : 'warn')
+          else say(`复核了最近 ${n} 条：✅ 公开可见 ${vis} 条`
+            + (gone ? `，❌ 已不存在 ${gone} 条（被删/被吞，以后不再重查）` : '')
+            + (miss ? `，⏳ 没查到 ${miss} 条（可能还在审核 —— 看不到不等于没发出去）` : '')
+            + '。明细也追加到今天的报告末尾了。', vis ? 'good' : 'warn')
           if (r.report) setReport(null)
         } catch (e) { say(String(e?.message ?? e), 'warn') } finally { setBusy('') }
       }

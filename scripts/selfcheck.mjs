@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 自检：宿主半端 + 浏览器半端（全部离线，不联网、不碰 B站、不发评论）
  *
  * 用法：
@@ -89,6 +89,16 @@ ok('保存按钮在工作区下面、日报上面',
     seg.includes('保存') && seg.indexOf('保存') < seg.indexOf('日报写多细'))
   ok('关键词/工作区/保存/日报 的顺序',
     seg.indexOf('工作区') < seg.indexOf('保存') && seg.indexOf('保存') < seg.indexOf('日报写多细'))
+}
+// ── 16) 复核：手动查最近 N 条 + 放弃机制不再重查（2026-10-21） ──
+ok('verifyRecent 支持 force（手动复核不吃 7 天缓存）', /force = false/.test(csrc.includes('verifyRecent') ? csrc : '') || readFileSync(R + 'lib/verify.mjs', 'utf8').includes('force = false'))
+{
+  const vm = readFileSync(R + 'lib/verify.mjs', 'utf8')
+  ok('手动复核走 force（取最近 N 条）', /if \(!force\)/.test(vm))
+  ok('标记为 gone 的评论记成 visible:false', /visible: res\.gone \? false : res\.visible/.test(vm))
+  ok('已知 gone 的直接跳过（不再每轮重查）', /prev\?\.gone === true/.test(vm))
+  ok('宿主把手动复核标成 force',
+    /verifyRecent\(stateDir, \{ log, force: why === 'manual' \}\)/.test(readFileSync(R + 'index.js', 'utf8')))
 }
 ok('三个分组标题都在', ['运行', '内容', '环境'].every((x) => flat.includes(x)))
 ok('分组标题横跨两列（栅格 + group-h）', /data-bd-group-h/.test(csrc) && /grid-column:1\/-1/.test(csrc))
