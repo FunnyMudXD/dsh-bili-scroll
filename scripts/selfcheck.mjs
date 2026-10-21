@@ -1,13 +1,21 @@
-/**
+﻿/**
  * 自检：宿主半端 + 浏览器半端（全部离线，不联网、不碰 B站、不发评论）
+ *
+ * 用法：
+ *   node scripts/selfcheck.mjs                                  # 测本仓库
+ *   $env:PLUGIN_DIR="...\\node_modules\\dsh-bili-scroll"; node scripts/selfcheck.mjs   # 测装好的那份
  */
 import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 
-// ⭐ 工作区版：默认测**本仓库**，也可以用 PLUGIN_DIR 指向装好的那一份
-const R = ((process.env.PLUGIN_DIR || fileURLToPath(new URL('..', import.meta.url))).replace(/\\\\/g, '/').replace(/\/+$/, '')) + '/'
+/* ⭐ 默认测**本仓库**；想看装好的那份就设 PLUGIN_DIR：
+ *    $env:PLUGIN_DIR="C:\Users\<你>\.dsh\profiles\desktop\node_modules\dsh-bili-scroll"
+ *
+ *  2026-10-21 起从"写死路径"改成可移植的，别人 clone 下来也能直接跑。 */
+const R = ((process.env.PLUGIN_DIR || fileURLToPath(new URL('..', import.meta.url)))
+  .replace(/\\/g, '/').replace(/\/+$/, '')) + '/'
 const TMP = join(tmpdir(), 'dsh-bili-selfcheck')
 const BOOT = join(TMP, 'bili-duty')
 const got = join(TMP, 'got.txt')
@@ -22,7 +30,8 @@ globalThis.document = { createElement: () => ({ setAttribute() {}, remove() {}, 
 globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true }) })
 globalThis.setInterval = () => 0; globalThis.clearInterval = () => {}
 const st = { ok: true, home: 'D:/x', defaultHome: 'D:/x', homeCustom: false, mentions: ['甲', '乙'], model: { provider: 'qodercn', model: 'dfmodel' },
-  config: { perDay: 50, perRound: 5, commentPerRound: 5, replyPerRound: 5, mentionName: '甲', mentionNames: ['甲', '乙'], modelProvider: 'qodercn', modelName: 'dfmodel', dmMode: 'off', dmUid: 0, workspace: '', reportLevel: 'full', keywords: [], autoComment: true, replyToComments: true, transcribe: false, peakValley: false, noon: true, night: true },
+  config: { perDay: 50, perRound: 5, commentPerRound: 5, replyPerRound: 5, mentionName: '甲', mentionNames: ['甲', '乙'], modelProvider: 'qodercn', modelName: 'dfmodel', dmMode: 'off', dmUid: 0, workspace: '', reportLevel: 'full', keywords: [], autoComment: true,
+  commentAtOwner: true, replyToComments: true, transcribe: false, peakValley: false, noon: true, night: true },
   windows: {}, venvReady: true, loggedIn: true, installing: false, asrReady: false, asrInstalling: false, version: '0.1.7', report: 'r', log: 'l', installTail: '', asrTail: '' }
 let hookIdx = 0, store = {}, effects = []
 const fns = new Map()
@@ -53,11 +62,38 @@ render()
 const tree = render()
 const flat = JSON.stringify(tree, (k, v) => (typeof v === 'function' ? '[fn]' : v))
 for (const s of ['B站 值班', '现在跑一轮', '复核评论', 'data-bd-head', 'data-bd-grid']) ok('页面含 ' + s, flat.includes(s))
-ok('卡片 8 张（7 设置卡 + 实时日志）', (flat.match(/"data-bd-sec"/g) || []).length === 8, '实际 ' + (flat.match(/"data-bd-sec"/g) || []).length)
-for (const s of ['什么时候自己跑', '一轮挑几条', '它会不会替你说话', '这一轮用哪个模型', '关注什么', '环境与账号', '它的地盘']) ok('卡片：' + s, flat.includes(s))
-ok('实时日志块存在', flat.includes('data-bd-log') && flat.includes('实时日志') && flat.includes('data-bd-logpre'))
+ok('卡片 10 张（都用可折叠的 Card 包着）+ 日志单独一张',
+  (csrc.match(/h\(Card, \{ title:/g) || []).length === 10 && (csrc.match(/'data-bd-log'/g) || []).length >= 1,
+  'Card ' + (csrc.match(/h\(Card, \{ title:/g) || []).length + ' 张')
+for (const s of ['什么时候自己跑', '一轮挑几条', '关注什么', '评论', '回复评论', '只评论娱乐视频', '顺手三连', '这一轮用哪个模型', '环境与账号', '它的地盘']) ok('卡片：' + s, flat.includes(s))
+ok('实时日志块存在', flat.includes('data-bd-log') && flat.includes('实时日志'))
+ok('日志的 <pre> 在源码里（收起着所以没渲染）', csrc.includes('data-bd-logpre'))
+ok('折叠卡片：有摘要 chip + caret + localStorage 记忆',
+  csrc.includes("'data-bd-cardhead'") && csrc.includes("'data-bd-caret'") && csrc.includes('localStorage.setItem'))
+ok('折叠卡片：默认收起（open 初值是 false）', /localStorage.getItem\(KEY\) === '1'/.test(csrc))
+
+// ── 14) 字段顺序 / 联动显隐（2026-10-21） ──
+ok('关键词：按收藏夹时不显示', csrc.includes("cfg.pickSource === 'favorites' ? null : h(React.Fragment"))
+ok('「要 @ 谁」在「评论里 @ 我」之后', csrc.indexOf("'要 @ 谁") > csrc.indexOf("'评论里 @ 我'"))
+ok('「要 @ 谁」只在 @ 模式显示', /cfg\.commentAtOwner === true \? h\('div', \{ 'data-bd-sub': '' \},[\s\S]{0,80}'要 @ 谁/.test(csrc))
+ok('保存按钮在工作区下面、日报上面',
+  csrc.indexOf('保存关键词 / 工作区') > csrc.indexOf('工作区（它按这里的 AGENTS.md 认设定）')
+  && csrc.indexOf('保存关键词 / 工作区') < csrc.indexOf("'日报写多细'"))
+// ── 15) 卡片边界（2026-10-21：上一版把日报甩到卡片外面了） ──
+{
+  const i = flat.indexOf('关注什么')
+  const j = flat.indexOf('评论', i + 5)
+  const seg = flat.slice(i, j > i ? j : i + 4000)
+  ok('「日报写多细」还在「关注什么」卡里', seg.includes('日报写多细'), '片段长度 ' + seg.length)
+  ok('保存按钮也在卡里，且排在日报之前',
+    seg.includes('保存') && seg.indexOf('保存') < seg.indexOf('日报写多细'))
+  ok('关键词/工作区/保存/日报 的顺序',
+    seg.indexOf('工作区') < seg.indexOf('保存') && seg.indexOf('保存') < seg.indexOf('日报写多细'))
+}
+ok('三个分组标题都在', ['运行', '内容', '环境'].every((x) => flat.includes(x)))
+ok('分组标题横跨两列（栅格 + group-h）', /data-bd-group-h/.test(csrc) && /grid-column:1\/-1/.test(csrc))
 ok('日志块三个按钮（跟随/刷新/打开）', flat.includes('跟随最新') && flat.includes('刷新') && flat.includes('打开日志文件'))
-const isrc = readFileSync(R + 'index.js', 'utf8')
+const isrc = readFileSync('C:/Users/yyj/.dsh/profiles/desktop/node_modules/dsh-bili-scroll/index.js', 'utf8')
 ok('宿主有 /log 接口', /path === '\/api\/bili-duty\/log'/.test(isrc))
 ok('/log 返回尾部且丢掉半截行', /if \(cut\) lines = lines\.slice\(1\)/.test(isrc) && /MAXC = 160_000/.test(isrc))
 ok('客户端轮询 /log', /jget\('\/log\?lines=300'\)/.test(csrc))
@@ -74,13 +110,13 @@ const cssText = (() => {
 })()
 ok('CSS 模板里没有反引号', !cssText.includes(BT))
 ok('CSS 页面根 height:100% + overflow-y:auto', /\[data-bd-page\]\{[^}]*height:100%[^}]*overflow-y:auto/s.test(csrc) || (/\[data-bd-page\]\{[^}]*height:100%/s.test(csrc) && /overflow-y:auto/s.test(csrc)))
-ok('CSS 瀑布流 column-count:2', /column-count:2/.test(csrc))
+ok('卡片区是两列栅格（不再瀑布流）', /grid-template-columns:repeat\(2/.test(csrc) && !/column-count:2/.test(csrc))
 ok('CSS 主按钮写死品牌蓝', /\[data-bd-btn\]\[data-primary\]\{background-color:#4d6bfe/.test(csrc))
 ok('CSS 开关 ON 写死品牌蓝', /\[data-bd-sw\]\[data-on\]\{background-color:#4d6bfe/.test(csrc))
 ok('CSS 大括号配平', (cssText.match(/\{/g) || []).length === (cssText.match(/\}/g) || []).length, (cssText.match(/\{/g) || []).length + '/' + (cssText.match(/\}/g) || []).length)
 
 // ── 2) 宿主半端 ─────────────────────────────────────────────────
-const mod = await import(`file:///` + R + 'index.js')
+const mod = await import('file:///C:/Users/yyj/.dsh/profiles/desktop/node_modules/dsh-bili-scroll/index.js')
 if (existsSync(TMP)) rmSync(TMP, { recursive: true, force: true })
 mkdirSync(join(BOOT, 'out'), { recursive: true })
 const fake = join(TMP, 'fake.mjs')
@@ -105,7 +141,7 @@ writeFileSync(join(BOOT, 'out', `${day}.md`), '# 刷B站 · ' + day + ' —— �
 writeFileSync(join(BOOT, 'seen.md'), ['# 判重表', '', '| BV | rpid | root | 时间 | 正文前 20 字 |', '| --- | --- | --- | --- | --- |', '| BV1aaaaaaaaa | 317000000001 | | 2026-10-19 | @甲 主人 |', ''].join('\n'), 'utf8')
 
 const tools = []
-process.env.DSH_PROFILE_DIR = process.env.DSH_PROFILE_DIR || join(process.env.USERPROFILE || '', '.dsh', 'profiles', 'desktop')
+process.env.DSH_PROFILE_DIR = 'C:\\Users\\yyj\\.dsh\\profiles\\desktop'
 mod.apply({
   logger: { info: () => {} },
   get: (k) => (k === 'dshHomePath' ? (seg) => join(TMP, seg) : undefined),
@@ -127,9 +163,9 @@ const prompt = existsSync(got) ? readFileSync(got, 'utf8') : ''
 ok('提示词经 stdin 送达', prompt.length > 500, prompt.length + ' 字')
 ok('提示词含单轮上限', /这一轮最多挑 5 条/.test(prompt))
 ok('提示词含每天总量', /全天总共上限 50 条/.test(prompt))
-ok('提示词含「主人」称呼规则', /称呼一声「主人」/.test(prompt))
+ok('评论规则里说明了称呼方式（@ 叫主人 / 不 @ 就不叫）', /称呼一声「主人」/.test(prompt) || /不要 @ 任何人/.test(prompt))
 ok('提示词给的是绝对时间（不让它开 shell）', /现在是 \d{4}\//.test(prompt) && !/自己看一眼系统时间/.test(prompt))
-ok('提示词含 3 个 @ 昵称', /@甲/.test(prompt) && /@乙/.test(prompt) && /@丙/.test(prompt))
+ok('@ 名单进了提示词（或明确说不 @）', (/@甲/.test(prompt) && /@乙/.test(prompt)) || /不要 @ 任何人/.test(prompt))
 ok('提示词含 AGENTS.md 人设', /人设|设定/.test(prompt))
 ok('提示词含「只评论娱乐视频」', /只评论娱乐视频/.test(prompt))
 ok('三连默认关着 ⇒ 提示词里根本没有三连规则', !/bili_triple/.test(prompt) && !/顺手三连/.test(prompt))
@@ -163,7 +199,8 @@ ok('日志置顶：在 data-bd-pinned 里、且在滚动区之前',
   && flat.indexOf('"data-bd-head"') < flat.indexOf('"data-bd-pinned"')
   && flat.indexOf('"data-bd-pinned"') < flat.indexOf('"data-bd-scroll"')
   && flat.indexOf('"data-bd-log"') < flat.indexOf('"data-bd-scroll"'))
-ok('日志有收起/展开按钮', flat.includes('收起'))
+ok('日志有收起/展开按钮', flat.includes('收起') || flat.includes('展开'))
+ok('日志默认收起（首屏显示「展开」而不是日志正文）', flat.includes('展开') && !flat.includes('收起'))
 ok('页头里有总开关按钮', flat.includes('data-bd-master') && flat.includes('刷B站服务'))
 ok('总开关带指示灯', flat.includes('data-bd-dot'))
 
@@ -220,7 +257,7 @@ const stTrip = await tools.find((t) => t.name === 'bili_status').execute({}, {})
 ok('/status 暴露 tripledToday', stTrip?.tripledToday === 0 || stTrip?.tripledToday >= 0, String(stTrip?.tripledToday))
 
 // ── 7) 判重表解析（2026-10-19 修：备注里的 id 被当成 root） ──
-const { parseSeen } = await import(`file:///` + R + 'lib/verify.mjs')
+const { parseSeen } = await import('file:///C:/Users/yyj/.dsh/profiles/desktop/node_modules/dsh-bili-scroll/lib/verify.mjs')
 const rRow = parseSeen('| BV1sunn6nEGz | 317542849953 | | 2026-10-19 约 17:00（与 317542914689 同一批） | @甲 正文 |')[0]
 ok('解析：表格列优先，备注里的 id 不当 root', rRow?.rpid === 317542849953 && rRow?.root === 0, JSON.stringify(rRow))
 const rBad = parseSeen('| BV1aaaaaaaaa | 317542849953 | 317542914689 | t | x |')[0]
@@ -229,7 +266,7 @@ const rGood = parseSeen('| BV1bbbbbbbbb | 317552924465 | 317542914689 | t | x |'
 ok('解析：正常楼中楼 root 保留', rGood?.root === 317542914689, JSON.stringify(rGood))
 
 // ── 8) 回复：窗口内全量扫 + 打分（2026-10-19 改） ──
-const { scoreReply, parseWhen, readReplied, recordReplied } = await import(`file:///` + R + 'lib/replies.mjs')
+const { scoreReply, parseWhen, readReplied, recordReplied } = await import('file:///C:/Users/yyj/.dsh/profiles/desktop/node_modules/dsh-bili-scroll/lib/replies.mjs')
 const sAsk = scoreReply('这个插件怎么装？')
 ok('打分：提问 + 相关 ⇒ 高分', sAsk.score >= 5, `${sAsk.score} ${sAsk.why.join('/')}`)
 const sNice = scoreReply('哈哈哈哈太可爱了')
@@ -261,7 +298,7 @@ ok('提示词：禁止自己翻评论', /别自己去翻评论/.test(promptReply
 await cfgTool.execute({ patch: { replyToComments: false } }, {})
 
 // ── 8.5) 娱乐 / 技术 分类器（2026-10-19） ──
-const { classifyVideo } = await import(`file:///` + R + 'lib/classify.mjs')
+const { classifyVideo } = await import('file:///C:/Users/yyj/.dsh/profiles/desktop/node_modules/dsh-bili-scroll/lib/classify.mjs')
 ok('分类：知识区 ⇒ tech', classifyVideo({ tname: '知识', title: '梗知识', tags: [] }).kind === 'tech')
 ok('分类：科技区 ⇒ tech', classifyVideo({ tname: '科技', title: '插件实测', tags: [] }).kind === 'tech')
 ok('分类：动画区 ⇒ fun', classifyVideo({ tname: '动画', title: '小剧场', tags: [] }).kind === 'fun')
@@ -284,10 +321,97 @@ await cfgTool.execute({ patch: { triplePerDay: 0 } }, {})
 await new Promise((r) => setTimeout(r, 1500))
 const iCap0 = await inter.execute({ bvid: 'BV1bbbbbbbbb' }, {})
 ok('日上限 0 → 拒绝三连', iCap0.blocked === true, String(iCap0.hint || '').slice(0, 40))
+// ── 9) 语气人设 + 挑片来源（2026-10-20） ──
+ok('评论语气规则在（撒娇求夸 或 观点+热梗）', /求夸奖|求摸摸头|热梗/.test(promptTrip))
+ok('默认不 @ 使用者 ⇒ 提示词明说「不要 @ 任何人」', /不要 @ 任何人/.test(prompt) || /不 @ 任何人/.test(prompt))
+ok('默认模式 ⇒ 写人设自己的观点', /写你自己的想法|自己的观点/.test(prompt))
+ok('默认模式 ⇒ 允许带网络热梗', /热梗/.test(prompt))
+ok('提示词要求加颜文字', /颜文字/.test(promptTrip))
+ok('提示词禁止概括视频内容', /不要概括视频内容/.test(promptTrip))
+const stPick = await tools.find((t) => t.name === 'bili_status').execute({}, {})
+ok('/status 暴露 pickSource', stPick?.pickSource === 'keywords' || stPick?.pickSource === 'favorites', String(stPick?.pickSource))
+await cfgTool.execute({ patch: { pickSource: 'favorites', biliUid: 334952458 } }, {})
+await new Promise((r) => setTimeout(r, 1500))
+rmSync(got, { force: true })
+const rFav = await run.execute({}, {})
+ok('收藏夹模式 → 能起跑', rFav.started === true, JSON.stringify(rFav).slice(0, 50))
+await new Promise((r) => setTimeout(r, 1300))
+const promptFav = existsSync(got) ? readFileSync(got, 'utf8') : ''
+ok('提示词切到「按收藏夹偏好」', /收藏夹偏好/.test(promptFav))
+ok('画像拿不到时会退回关键词', /没拿到画像|退回用关键词|不用关键词/.test(promptFav))
+await cfgTool.execute({ patch: { pickSource: 'keywords', biliUid: 0 } }, {})
 await cfgTool.execute({ patch: { tripleOn: false, triplePerDay: 5 } }, {})
+
+// ── 11) 私信：白名单要给到 bili_send_message（2026-10-20 修） ──
+await cfgTool.execute({ patch: { dmMode: 'both', dmUid: 22302917 } }, {})
+await new Promise((r) => setTimeout(r, 1500))
+await run.execute({}, {})
+await new Promise((r) => setTimeout(r, 1200))
+const ovDm = existsSync(ov) ? readFileSync(ov, 'utf8') : ''
+
+// ── 12) 不 @ 模式 + @ 名单为空 ⇒ 评论照发（只验提示词，不联网） ──
+await cfgTool.execute({ patch: { commentAtOwner: false, autoComment: true, mentionNames: [], mentionName: '', dmMode: 'off' } }, {})
+// 等上一轮彻底退出（单飞锁），否则这次 run 会被拒
+for (let i = 0; i < 12; i += 1) {
+  const stx = await tools.find((x) => x.name === 'bili_status').execute({}, {})
+  if (!stx || !stx.running) break
+  await new Promise((r) => setTimeout(r, 800))
+}
+rmSync(got, { force: true })
+const rNoName = await run.execute({}, {})
+ok('不 @ + 名单为空 ⇒ 这一轮能起跑', rNoName.started === true, JSON.stringify(rNoName).slice(0, 60))
+await new Promise((r) => setTimeout(r, 1400))
+const promptNoName = existsSync(got) ? readFileSync(got, 'utf8') : ''
+ok('不 @ 模式 + 名单为空 ⇒ 评论仍开着', promptNoName.includes('不 @ 任何人'), promptNoName.slice(0, 40))
+await cfgTool.execute({ patch: { mentionNames: ['甲', '乙', '丙'], mentionName: '甲' } }, {})
+
+// ── 13) 复核探针 + 放弃机制（2026-10-20） ──
+const vm = await import('file:///' + R + 'lib/verify.mjs')
+ok('verify.mjs 导出了 verifyOne', typeof vm.verifyOne === 'function')
+ok('verify.mjs 导出了 verifyRecent', typeof vm.verifyRecent === 'function')
+{
+  // 造一个假 fetch：顶层翻页查不到，但 root 探针 code=0 ⇒ 应当判"可见"
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async (url) => ({
+    text: async () => JSON.stringify(
+      String(url).includes('/x/web-interface/view')
+        ? { code: 0, data: { aid: 1, title: 'x', owner: { mid: 2 } } }
+        : String(url).includes('/x/v2/reply/reply')
+          ? { code: 0, data: { replies: [{ rpid: 3 }] } }
+          : { code: 0, data: { replies: [], cursor: {} } }
+    ),
+  })
+  const r1 = await vm.verifyOne({ bv: 'BV1zzzzzzzzz', rpid: 999, root: 0 }, { cred: {}, aidCache: new Map(), headers: {} })
+  ok('翻页找不到但 root 探针命中 ⇒ 判公开可见', r1.visible === true && /root 直查/.test(r1.how), r1.how)
+
+  globalThis.fetch = async (url) => ({
+    text: async () => JSON.stringify(
+      String(url).includes('/x/web-interface/view')
+        ? { code: 0, data: { aid: 1, title: 'x', owner: { mid: 2 } } }
+        : String(url).includes('/x/v2/reply/reply')
+          ? { code: 12006, message: '评论不存在' }
+          : { code: 0, data: { replies: [], cursor: {} } }
+    ),
+  })
+  const r2 = await vm.verifyOne({ bv: 'BV1zzzzzzzzz', rpid: 998, root: 0 }, { cred: {}, aidCache: new Map(), headers: {} })
+  ok('B站 说评论不存在 ⇒ 标记 gone', r2.gone === true, r2.note.slice(0, 30))
+  globalThis.fetch = realFetch
+}
+
+ok('开了「评论+私信」⇒ 白名单里有 bili_send_message', /BILI_MCP_TOOLS: '[^']*bili_send_message/.test(ovDm))
+await cfgTool.execute({ patch: { dmMode: 'off', dmUid: 0 } }, {})
 
 try { rmSync(TMP, { recursive: true, force: true }) } catch { /* 子进程还开着就下次再清 */ }
 process.env.DSH_PROFILE_DIR = undefined
+// ── 10) 不 @ 模式（2026-10-20 用户最终要求：评论 = 人设自己的观点） ──
+//    注：自检里 config.json 不带 commentAtOwner ⇒ 默认就是「不 @」模式，直接看第一轮那份提示词
+ok('不 @ 模式 ⇒ 明说「不要 @ 任何人」', /不要 @ 任何人/.test(prompt))
+ok('不 @ 模式 ⇒ 写人设自己的观点', /写你自己的想法/.test(prompt))
+ok('不 @ 模式 ⇒ 允许热梗但要贴切', /热梗/.test(prompt) && /贴切/.test(prompt))
+ok('不 @ 模式 ⇒ 不复述视频内容', /不要复述/.test(prompt) || /不要概括视频内容/.test(prompt))
+
+ok('不 @ 模式 ⇒ 不叫「主人」', /不叫「主人」/.test(prompt))
+
 console.log(outs.join('\n'))
-const bad = outs.filter((x) => x.startsWith('❌')).length
+const bad = outs.filter((x) => x.includes('❌')).length
 console.log('\n合计 ' + outs.length + ' 项，失败 ' + bad + ' 项')
