@@ -87,15 +87,23 @@ window.__ModuleLoader__.load({
 [data-bd-chip][data-tone=brand]{color:var(--dsw-alias-brand-primary,#4d6bfe);
   border-color:rgba(77,107,254,.38);background:rgba(77,107,254,.1);}
 [data-bd-actions]{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:2px;}
-/* ══════════════ 卡片区（2026-10-19 第二轮：栅格 → 瀑布流） ══════════════
- * 🔴 上一版用 「grid auto-fit」 ⇒ 卡片高度参差不齐时**每行都被最高的那张撑开**，
- *    左边两张下面留一大片空洞（用户截图指出："排版还是有问题"）✗
- * ⭐ 改成多列瀑布流（column-count）：卡片按高度自动分配到各列，不留洞；
- *    列数只管"宽窄"，窄屏自动降到 1 列。 */
-[data-bd-grid]{column-count:2;column-gap:16px;}
-@media (max-width:860px){[data-bd-grid]{column-count:1;}}
+/* ══════════════ 卡片区（2026-10-21：瀑布流 → 分组栅格） ══════════════
+ * 为什么不再用 column-count：
+ *   · 瀑布流是「先填满第一列再填第二列」⇒ 阅读顺序跟视觉顺序对不上，找设置靠猜
+ *   · 分组标题没法横跨两列（它只能挤成第 N 列的一个格子）
+ * ⇒ 改成两列栅格 + 每组一个横跨整行的标题：顺序 = DOM 顺序，扫读线性。
+ *   （align-items:start 让每张卡按自身高度排，不会被同排最高的撑出空洞） */
+[data-bd-grid]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;}
+@media (max-width:860px){[data-bd-grid]{grid-template-columns:minmax(0,1fr);}}
+/* 分组标题：横跨两列，一条淡分割线把它和上一组隔开 */
+[data-bd-group]{grid-column:1/-1;min-width:0;}
+[data-bd-group-h]{display:flex;align-items:baseline;gap:8px;
+  margin:10px 0 -4px;padding:0 2px 7px;font-size:13px;font-weight:650;letter-spacing:.02em;
+  border-bottom:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.18));}
+[data-bd-group]:first-child > [data-bd-group-h]{margin-top:0;}
+[data-bd-group-sub]{font-size:11.5px;font-weight:400;color:var(--dsw-alias-label-tertiary,#9aa0a6);}
 [data-bd-sec]{display:flex;flex-direction:column;gap:12px;box-sizing:border-box;width:100%;
-  margin:0 0 16px;break-inside:avoid;-webkit-column-break-inside:avoid;
+  margin:0;
   padding:16px 18px 18px;border-radius:14px;
   border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.18));
   background:var(--dsw-alias-bg-module-platform,rgba(128,128,128,.05));}
@@ -394,7 +402,8 @@ window.__ModuleLoader__.load({
       /* ⭐ 实时日志块（2026-10-19 加）：跑着时 1.5s 刷、空闲 6s；「跟随最新」开着就自动滚到底 */
       const [logNonce, setLogNonce] = React.useState(0)
       const [follow, setFollow] = React.useState(true)
-      const [logOpen, setLogOpen] = React.useState(true)   // ⭐ 日志展开/收起（收起后设置区更宽敞）
+      /* ⭐ 2026-10-21：日志默认收起 —— 平时不看，却占着首屏最贵的位置 */
+      const [logOpen, setLogOpen] = React.useState(false)   // 日志展开/收起
       const logRef = React.useRef(null)
       const logData = useLog(st?.running ? 1500 : 6000, logNonce)
       React.useEffect(() => {
@@ -750,6 +759,10 @@ window.__ModuleLoader__.load({
         /* ══ 卡片区 ══ */
         h('div', { 'data-bd-grid': '' },
 
+        /* ══ 运行 ══ */
+        h('div', { 'data-bd-group': '' },
+          h('div', { 'data-bd-group-h': '' }, '运行', h('span', { 'data-bd-group-sub': '' }, '什么时候跑、跑多少'))),
+
         /* ── 定时 ── */
         h('div', { 'data-bd-sec': '' },
           h('div', { 'data-bd-h': '' }, '什么时候自己跑'),
@@ -767,7 +780,6 @@ window.__ModuleLoader__.load({
               on: sw(k),
               onChange: (v) => patch({ [k]: v }, win[k].label),
             }))) : null),
-
         /* ── 一轮挑几条 ── */
         h('div', { 'data-bd-sec': '' },
           h('div', { 'data-bd-h': '' }, '一轮挑几条'),
@@ -795,264 +807,9 @@ window.__ModuleLoader__.load({
             })),
           st.lastRunAt ? h('div', { 'data-bd-note': '' }, `上次跑：${new Date(st.lastRunAt).toLocaleString('zh-CN')}`) : null),
 
-        /* ── 发言与转写 ── */
-        h('div', { 'data-bd-sec': '' },
-          h('div', { 'data-bd-h': '' }, '它会不会替你说话'),
-          h(ToggleRow, {
-            label: '回复评论（回你评论区里的回复）',
-            note: '默认关；开了之后宿主会按「最近 N 天」扫自己发过的评论、拉到别人给我的回复并按规则打分，够分的才交给这一轮去回（模型不再自己翻楼）',
-            on: sw('replyToComments'),
-            onChange: (v) => patch({ replyToComments: v }, '回复评论'),
-          }),
-          sw('replyToComments') ? h('div', { 'data-bd-sub': '' },
-            h('div', { 'data-bd-row': '' },
-              h('div', { 'data-bd-grow': '' },
-                h('div', { 'data-bd-label': '' }, '每轮最多回几条'),
-                h('div', { 'data-bd-note': '' }, '只回直接回在你那条评论下面的人')),
-              h('input', {
-                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 1, max: 10,
-                value: replyPer ?? '',
-                onChange: (e) => setReplyPer(e.target.value),
-                onBlur: () => { const n = Math.max(1, Math.min(Number(replyPer) || 1, 10)); setReplyPer(String(n)); patch({ replyPerRound: n }, '每轮几条回复') },
-              })),
-            h('div', { 'data-bd-row': '' },
-              h('div', { 'data-bd-grow': '' },
-                h('div', { 'data-bd-label': '' }, '回看几天'),
-                h('div', { 'data-bd-note': '' }, '只扫最近这些天自己发过的评论（1–30）')),
-              h('input', {
-                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 1, max: 30,
-                value: lookbackDraft ?? '',
-                onChange: (e) => setLookbackDraft(e.target.value),
-                onBlur: () => { const v = Math.max(1, Math.min(Number(lookbackDraft) || 7, 30)); setLookbackDraft(String(v)); patch({ replyLookbackDays: v }, '回看几天') },
-              })),
-            h('div', { 'data-bd-row': '' },
-              h('div', { 'data-bd-grow': '' },
-                h('div', { 'data-bd-label': '' }, '回复线（分数）'),
-                h('div', { 'data-bd-note': '' }, '低于这个分数的不回；3 = 至少「像提问」或「相关 + 轻互动」')),
-              h('input', {
-                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0, max: 20,
-                value: minScoreDraft ?? '',
-                onChange: (e) => setMinScoreDraft(e.target.value),
-                onBlur: () => { const v = Math.max(0, Math.min(Number(minScoreDraft) || 0, 20)); setMinScoreDraft(String(v)); patch({ replyMinScore: v }, '回复线') },
-              }))) : null,
-          /* ⭐ 评论里 @ 不 @ 你（2026-10-20）：默认关 —— 评论就是"人设看完的观点"，不是来喊你的 */
-          h(ToggleRow, {
-            label: '评论里 @ 我',
-            note: '默认关：评论写成「看完的观点」，不 @ 任何人；打开才回到"喊你来看 + 求夸/求摸头"',
-            on: cfg.commentAtOwner === true,
-            onChange: (v) => patch({ commentAtOwner: v }, '评论里 @ 我'),
-          }),          h(ToggleRow, {
-            label: '只评论娱乐视频',
-            note: '默认开；学习/技术/教程/科普/评测类只写进报告，不发评论（也不三连）',
-            on: sw('funOnly'),
-            onChange: (v) => patch({ funOnly: v }, '只评论娱乐视频'),
-          }),
-          /* ⭐ 标签规则（2026-10-19）：白名单命中 = 一定评论；黑名单命中 = 一定不评论。都比分区优先 */
-          sw('funOnly') ? h('div', { 'data-bd-sub': '' },
-            h('div', { 'data-bd-row': '' },
-              h('div', { 'data-bd-grow': '' },
-                h('div', { 'data-bd-label': '' }, '标签白名单（一行一个）'),
-                h('div', { 'data-bd-note': '' }, '命中就一定评论 —— 哪怕分区是「知识 / 科技」。例如：梗、小剧场、大肥鱼')),
-              h('textarea', {
-                'data-bd-input': '', 'data-bd-area': '', rows: 3,
-                placeholder: '梗\n小剧场\n大肥鱼',
-                value: allowTagsDraft ?? '',
-                onChange: (e) => setAllowTagsDraft(e.target.value),
-                onBlur: () => saveTagList('funTagsAllow', allowTagsDraft, '标签白名单'),
-              })),
-            h('div', { 'data-bd-row': '' },
-              h('div', { 'data-bd-grow': '' },
-                h('div', { 'data-bd-label': '' }, '标签黑名单（一行一个）'),
-                h('div', { 'data-bd-note': '' }, '命中就一条都不发、也不三连 —— 哪怕分区是「动画 / 搞笑」。例如：教程、科普、编程')),
-              h('textarea', {
-                'data-bd-input': '', 'data-bd-area': '', rows: 3,
-                placeholder: '教程\n科普\n编程',
-                value: blockTagsDraft ?? '',
-                onChange: (e) => setBlockTagsDraft(e.target.value),
-                onBlur: () => saveTagList('funTagsBlock', blockTagsDraft, '标签黑名单'),
-              }))) : null,
-          h(ToggleRow, {
-            label: '自动发评论',
-            note: '默认关；开了之后会在挑中的视频下面留一条评论（写「看完的观点」）。要不要 @ 你，看上面的「评论里 @ 我」',
-            on: sw('autoComment'),
-            onChange: (v) => patch({ autoComment: v }, '自动评论'),
-          }),
-          sw('autoComment') ? h('div', { 'data-bd-sub': '' },
-            h('div', { 'data-bd-row': '' },
-              h('div', { 'data-bd-grow': '' },
-                h('div', { 'data-bd-label': '' }, '每轮最多发几条评论'),
-                h('div', { 'data-bd-note': '' }, '填 0 = 这一轮不发评论')),
-              h('input', {
-                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0, max: 20,
-                value: perRound ?? '',
-                onChange: (e) => setPerRound(e.target.value),
-                // ⭐ 0 是合法值（= 这一轮不发评论）；范围与 index.js 的 clampPatch 一致（0–20）
-                onBlur: () => { const n = Math.max(0, Math.min(Number(perRound) || 0, 20)); setPerRound(String(n)); patch({ commentPerRound: n }, '每轮几条评论') },
-              })),
-            h('div', { 'data-bd-label': '' }, '要 @ 谁（B站 昵称，可多个）· 只在「评论里 @ 我」开着时用'),
-            h('textarea', {
-              'data-bd-input': '', rows: 3,
-              value: mentionsDraft ?? '',
-              placeholder: '一行一个昵称（也可以逗号/顿号分隔）；留空 = 只写报告、不发评论',
-              onChange: (e) => setMentionsDraft(e.target.value),
-              onBlur: () => {
-                const list = parseMentions(mentionsDraft)
-                setMentionsDraft(list.join('\n'))
-                // ⭐ 同时写老字段 mentionName（= 第一个），旧配置/旧前端也能读懂
-                patch({ mentionNames: list, mentionName: list[0] || '' }, '要 @ 谁')
-              },
-            }),
-            h('div', { 'data-bd-note': '' },
-              (st.mentions && st.mentions.length)
-                ? `这一轮会分别 @：${st.mentions.map((n) => '@' + n).join(' ')}`
-                : '留空 = 不 @ 任何人（评论照样发）'),
-            h('div', { 'data-bd-note': '' }, 'B站 的 @ 是纯文本：正文里写 `@昵称` 才会真的圈到人；多个就写多个，最多 8 个')) : null,
-          h('div', { 'data-bd-label': '' }, '投递方式（评论 还是 私信）'),
-          h('select', {
-            'data-bd-input': '', value: dmMode ?? 'off',
-            onChange: (e) => { setDmMode(e.target.value); patch({ dmMode: e.target.value }, '投递方式') },
-          },
-            h('option', { value: 'off' }, '只发评论 —— 在视频下面留言（默认）'),
-            h('option', { value: 'only' }, '只私信 —— 一条公开评论都不发，最不打扰别人'),
-            h('option', { value: 'both' }, '评论 + 私信 —— 两边都发')),
-          (dmMode && dmMode !== 'off') ? h('div', { 'data-bd-sub': '' },
-            h('div', { 'data-bd-label': '' }, '私信发给谁（B站 UID，数字）'),
-            h('input', {
-              'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0, value: dmUid ?? '',
-              placeholder: '对方的数字 UID；比如你自己的另一个号',
-              onChange: (e) => setDmUid(e.target.value),
-              onBlur: () => { const n = Math.max(0, Number(dmUid) || 0); setDmUid(n ? String(n) : ''); patch({ dmUid: n }, '私信收件人') },
-            }),
-            h('div', { 'data-bd-note': '' }, '私信内容 = 本轮每条的「标题 + 链接 + 一句话」，一轮合并成一条发（不受 150 字限制）'),
-            h('div', { 'data-bd-note': '' }, '⚠️ 建议先让这个号和收件人互关：B站 对「陌生人私信」会限流，还可能不弹提醒')) : null,
-          /* ⭐ 顺手三连（2026-10-19）：默认关。关着时下面全收起 —— 它不是"额度 0"，是根本没这功能 */
-          h(ToggleRow, {
-            label: '顺手三连（点赞 + 投币 + 收藏）',
-            note: '默认关；开着之后只给「这一轮挑中、要发评论」的那几条三连，并受每天上限约束',
-            on: sw('tripleOn'),
-            onChange: (v) => patch({ tripleOn: v }, '顺手三连'),
-          }),
-          sw('tripleOn') ? h('div', { 'data-bd-sub': '' },
-            h('div', { 'data-bd-row': '' },
-              h('div', { 'data-bd-grow': '' },
-                h('div', { 'data-bd-label': '' }, '每条投几枚币'),
-                h('div', { 'data-bd-note': '' }, '硬币是钱；默认 1 枚')),
-              h('select', {
-                'data-bd-input': '', value: String(tripleCoin ?? '1'),
-                onChange: (e) => { setTripleCoin(e.target.value); patch({ tripleCoin: Number(e.target.value) }, '投币数') },
-              },
-                h('option', { value: '1' }, '1 枚'),
-                h('option', { value: '2' }, '2 枚'))),
-            h('div', { 'data-bd-row': '' },
-              h('div', { 'data-bd-grow': '' },
-                h('div', { 'data-bd-label': '' }, '每天最多三连几条'),
-                h('div', { 'data-bd-note': '' }, '**独立配置**（不跟「每天挑几条」联动）；填 0 = 不三连')),
-              h('input', {
-                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0, max: 50,
-                value: triplePerDayDraft ?? '',
-                onChange: (e) => setTriplePerDayDraft(e.target.value),
-                onBlur: () => { const n = Math.max(0, Math.min(Number(triplePerDayDraft) || 0, 50)); setTriplePerDayDraft(String(n)); patch({ triplePerDay: n }, '每天三连上限') },
-              })),
-            h('div', { 'data-bd-row': '' },
-              h('div', { 'data-bd-grow': '' },
-                h('div', { 'data-bd-label': '' }, '收藏到哪个收藏夹'),
-                h('div', { 'data-bd-note': '' },
-                  favErr ? `拉收藏夹失败：${favErr}` : '选具体收藏夹会改走「点赞 + 投币 + 收藏」分步（官方三连只能进默认夹）')),
-              h('select', {
-                'data-bd-input': '', style: { maxWidth: '220px' },
-                value: String(tripleFav ?? '0'),
-                onChange: (e) => { setTripleFav(e.target.value); patch({ tripleFavMediaId: Number(e.target.value) }, '收藏夹') },
-              },
-                h('option', { value: '0' }, '默认收藏夹'),
-                ...(favFolders || []).map((f) => h('option', { key: String(f.id), value: String(f.id) },
-                  `${f.title}${f.private ? '（私密）' : ''} · ${f.count} 个`)))),
-            h(ToggleRow, {
-              label: '评论里说明「已三连」',
-              note: '只在三连真的成功时才说；失败就一个字都不提',
-              on: sw('tripleSay'),
-              onChange: (v) => patch({ tripleSay: v }, '三连说明'),
-            }),
-            h('div', { 'data-bd-note': '' }, `今天已经三连 ${st.tripledToday ?? 0} 条`)) : null,
-          h(ToggleRow, {
-            label: '本地转写没字幕的视频',
-            note: '默认关；开了以后，没字幕的视频会在本机转写一遍（不花 API 钱）',
-            on: sw('transcribe'),
-            onChange: (v) => patch({ transcribe: v }, '本地转写'),
-          }),
-          sw('transcribe') ? h('div', { 'data-bd-sub': '' },
-            h('div', { 'data-bd-row': '' },
-              h('button', { 'data-bd-btn': '', disabled: busy === 'asr', onClick: onInstallAsr },
-                st.asrReady ? '重装转写依赖' : '装转写依赖'),
-              h('div', { 'data-bd-note': '' },
-                !st.asrReady ? '还没装 —— 现在开着也没用：没字幕的视频会被跳过（报告里会写"因无字幕跳过 N 条"）'
-                  : (st.asrModelReady ? '环境和模型都好了' : '环境好了；模型会在第一次转写时自动下（几百 MB）'))),
-            h('div', { 'data-bd-note': '' },
-              '点一下就好：建一个独立环境、装 faster-whisper + yt-dlp，并把 Whisper 模型也下好',
-              h('br'),
-              '（模型默认 small，几百 MB，走国内镜像；装一次就够了）'),
-            st.asrTail ? h('div', null,
-              h('div', { 'data-bd-note': '' }, st.asrInstalling ? '正在装转写依赖（进度）：' : '转写依赖的日志（末尾）—— 只有「没字幕的视频」用得到它：'),
-              h('pre', { 'data-bd-pre': '' }, st.asrTail)) : null) : null),
-
-        /* ── 这一轮用哪个模型 ── */
-        (() => {
-          /* ⭐ 2026-10-19 加：给「刷B站那一轮」单独指定模型（只影响 headless 那一轮，不动你平时的对话模型）。
-           *    实现：overlay 里覆盖 `agent-default-model`（见 index.js 的 ensureOverlay）。
-           *    ⚠️ 模型列表来自宿主 llm 服务；拿不到就退回两个手填框，**不能因为列表拿不到就卡住**。 */
-          const cur = modelDraft || ''
-          const opts = []
-          for (const p of (catalog?.providers || [])) {
-            // ⭐ 宿主标了 usable:false 的通道（比如没配 Key 的 deepseek-official）后面挂个「缺 Key」
-            const bad = p.usable === false
-            for (const m of (p.models || [])) {
-              opts.push({
-                v: p.provider + '\u0000' + m.id,
-                label: `${p.name || p.provider} · ${m.name || m.id}${bad ? '（缺 Key）' : ''}`,
-              })
-            }
-          }
-          const curProv = (catalog?.providers || []).find((p) => p.provider === (modelDraft || '').split('\u0000')[0])
-          if (cur && !opts.some((o) => o.v === cur)) {
-            const [p, m] = cur.split('\u0000')
-            opts.unshift({ v: cur, label: `${p} / ${m}（当前）` })
-          }
-          const [curP, curM] = cur ? cur.split('\u0000') : ['', '']
-          return h('div', { 'data-bd-sec': '' },
-            h('div', { 'data-bd-h': '' }, '这一轮用哪个模型'),
-            h('select', {
-              'data-bd-input': '', value: cur,
-              onChange: (e) => {
-                const v = e.target.value
-                setModelDraft(v)
-                if (!v) patch({ modelProvider: '', modelName: '' }, '模型')
-                else { const [p, m] = v.split('\u0000'); patch({ modelProvider: p, modelName: m }, '模型') }
-              },
-            },
-              h('option', { value: '' }, '跟 profile 默认（不改）'),
-              ...opts.map((o) => h('option', { key: o.v, value: o.v }, o.label))),
-            curProv && curProv.usable === false
-              ? h('div', { 'data-bd-msg': '', 'data-warn': '' }, curProv.note || '这个通道现在跑不了')
-              : (curProv && curProv.note ? h('div', { 'data-bd-msg': '' }, curProv.note) : null),
-            catalog === null ? h('div', { 'data-bd-note': '' }, '正在读宿主的模型列表…') : null,
-            (catalog && !opts.length) ? h('div', { 'data-bd-note': '' }, '拿不到模型列表（宿主没报错误就手填）：') : null,
-            h('div', { 'data-bd-label': '' }, '或者手填（provider / model）'),
-            h('div', { 'data-bd-row': '' },
-              h('input', {
-                'data-bd-input': '', value: curP, placeholder: 'provider（如 deepseek-official）',
-                onChange: (e) => setModelDraft(e.target.value + '\u0000' + curM),
-                onBlur: () => { const p = String(curP || '').trim(); if (p) patch({ modelProvider: p, modelName: curM }, '模型'); else patch({ modelProvider: '', modelName: '' }, '模型') },
-              }),
-              h('input', {
-                'data-bd-input': '', value: curM, placeholder: 'model（如 deepseek-flash）',
-                onChange: (e) => setModelDraft(curP + '\u0000' + e.target.value),
-                onBlur: () => { const m = String(curM || '').trim(); if (m) patch({ modelProvider: curP, modelName: m }, '模型'); else patch({ modelProvider: '', modelName: '' }, '模型') },
-              })),
-            h('div', { 'data-bd-note': '' },
-              st.model ? `这一轮跑：${st.model.provider} / ${st.model.model}` : '这一轮跑：跟 profile 默认'),
-            h('div', { 'data-bd-note': '' }, '⚠️ 只影响「刷B站那一轮」用的模型，不改你平时的对话模型；换贵的模型会把那一轮的成本抬上去。'),
-            h('div', { 'data-bd-note': '' },
-              '⭐ 桌面端的 provider（比如 qodercn）默认不在 headless 里 —— 插件会自动把本机对应的 provider 插件挂进那一轮，不用你装东西。'))
-        })(),
+        /* ══ 内容 ══ */
+        h('div', { 'data-bd-group': '' },
+          h('div', { 'data-bd-group-h': '' }, '内容', h('span', { 'data-bd-group-sub': '' }, '挑什么、说什么'))),
 
         /* ── 关注什么 / 在哪儿刷 ── */
         h('div', { 'data-bd-sec': '' },
@@ -1124,7 +881,282 @@ window.__ModuleLoader__.load({
           h('div', { 'data-bd-row': '' },
             h('button', { 'data-bd-btn': '', 'data-primary': '', disabled: Boolean(busy), onClick: onSaveText }, '保存'),
             msg ? h('div', { 'data-bd-msg': '', 'data-good': msgTone === 'good' ? '' : undefined, 'data-warn': msgTone === 'warn' ? '' : undefined }, msg) : null)),
+        h('div', { 'data-bd-sec': '' },
+          h('div', { 'data-bd-h': '' }, '评论'),
+          h(ToggleRow, {
+            label: '自动发评论',
+            note: '默认关；开了之后会在挑中的视频下面留一条评论（写「看完的观点」）。要不要 @ 你，看上面的「评论里 @ 我」',
+            on: sw('autoComment'),
+            onChange: (v) => patch({ autoComment: v }, '自动评论'),
+          }),
+          sw('autoComment') ? h('div', { 'data-bd-sub': '' },
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, '每轮最多发几条评论'),
+                h('div', { 'data-bd-note': '' }, '填 0 = 这一轮不发评论')),
+              h('input', {
+                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0, max: 20,
+                value: perRound ?? '',
+                onChange: (e) => setPerRound(e.target.value),
+                // ⭐ 0 是合法值（= 这一轮不发评论）；范围与 index.js 的 clampPatch 一致（0–20）
+                onBlur: () => { const n = Math.max(0, Math.min(Number(perRound) || 0, 20)); setPerRound(String(n)); patch({ commentPerRound: n }, '每轮几条评论') },
+              })),
+            h('div', { 'data-bd-label': '' }, '要 @ 谁（B站 昵称，可多个）· 只在「评论里 @ 我」开着时用'),
+            h('textarea', {
+              'data-bd-input': '', rows: 3,
+              value: mentionsDraft ?? '',
+              placeholder: '一行一个昵称（也可以逗号/顿号分隔）；留空 = 只写报告、不发评论',
+              onChange: (e) => setMentionsDraft(e.target.value),
+              onBlur: () => {
+                const list = parseMentions(mentionsDraft)
+                setMentionsDraft(list.join('\n'))
+                // ⭐ 同时写老字段 mentionName（= 第一个），旧配置/旧前端也能读懂
+                patch({ mentionNames: list, mentionName: list[0] || '' }, '要 @ 谁')
+              },
+            }),
+            h('div', { 'data-bd-note': '' },
+              (st.mentions && st.mentions.length)
+                ? `这一轮会分别 @：${st.mentions.map((n) => '@' + n).join(' ')}`
+                : '留空 = 不 @ 任何人（评论照样发）'),
+            h('div', { 'data-bd-note': '' }, 'B站 的 @ 是纯文本：正文里写 `@昵称` 才会真的圈到人；多个就写多个，最多 8 个')) : null,
+          /* ⭐ 评论里 @ 不 @ 你（2026-10-20）：默认关 —— 评论就是"人设看完的观点"，不是来喊你的 */
+          h(ToggleRow, {
+            label: '评论里 @ 我',
+            note: '默认关：评论写成「看完的观点」，不 @ 任何人；打开才回到"喊你来看 + 求夸/求摸头"',
+            on: cfg.commentAtOwner === true,
+            onChange: (v) => patch({ commentAtOwner: v }, '评论里 @ 我'),
+          }),
+          h('div', { 'data-bd-label': '' }, '投递方式（评论 还是 私信）'),
+          h('select', {
+            'data-bd-input': '', value: dmMode ?? 'off',
+            onChange: (e) => { setDmMode(e.target.value); patch({ dmMode: e.target.value }, '投递方式') },
+          },
+            h('option', { value: 'off' }, '只发评论 —— 在视频下面留言（默认）'),
+            h('option', { value: 'only' }, '只私信 —— 一条公开评论都不发，最不打扰别人'),
+            h('option', { value: 'both' }, '评论 + 私信 —— 两边都发')),
+          (dmMode && dmMode !== 'off') ? h('div', { 'data-bd-sub': '' },
+            h('div', { 'data-bd-label': '' }, '私信发给谁（B站 UID，数字）'),
+            h('input', {
+              'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0, value: dmUid ?? '',
+              placeholder: '对方的数字 UID；比如你自己的另一个号',
+              onChange: (e) => setDmUid(e.target.value),
+              onBlur: () => { const n = Math.max(0, Number(dmUid) || 0); setDmUid(n ? String(n) : ''); patch({ dmUid: n }, '私信收件人') },
+            }),
+            h('div', { 'data-bd-note': '' }, '私信内容 = 本轮每条的「标题 + 链接 + 一句话」，一轮合并成一条发（不受 150 字限制）'),
+            h('div', { 'data-bd-note': '' }, '⚠️ 建议先让这个号和收件人互关：B站 对「陌生人私信」会限流，还可能不弹提醒')) : null,
+        ),
 
+        h('div', { 'data-bd-sec': '' },
+          h('div', { 'data-bd-h': '' }, '回复评论'),
+          h(ToggleRow, {
+            label: '回复评论（回你评论区里的回复）',
+            note: '默认关；开了之后宿主会按「最近 N 天」扫自己发过的评论、拉到别人给我的回复并按规则打分，够分的才交给这一轮去回（模型不再自己翻楼）',
+            on: sw('replyToComments'),
+            onChange: (v) => patch({ replyToComments: v }, '回复评论'),
+          }),
+          sw('replyToComments') ? h('div', { 'data-bd-sub': '' },
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, '每轮最多回几条'),
+                h('div', { 'data-bd-note': '' }, '只回直接回在你那条评论下面的人')),
+              h('input', {
+                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 1, max: 10,
+                value: replyPer ?? '',
+                onChange: (e) => setReplyPer(e.target.value),
+                onBlur: () => { const n = Math.max(1, Math.min(Number(replyPer) || 1, 10)); setReplyPer(String(n)); patch({ replyPerRound: n }, '每轮几条回复') },
+              })),
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, '回看几天'),
+                h('div', { 'data-bd-note': '' }, '只扫最近这些天自己发过的评论（1–30）')),
+              h('input', {
+                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 1, max: 30,
+                value: lookbackDraft ?? '',
+                onChange: (e) => setLookbackDraft(e.target.value),
+                onBlur: () => { const v = Math.max(1, Math.min(Number(lookbackDraft) || 7, 30)); setLookbackDraft(String(v)); patch({ replyLookbackDays: v }, '回看几天') },
+              })),
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, '回复线（分数）'),
+                h('div', { 'data-bd-note': '' }, '低于这个分数的不回；3 = 至少「像提问」或「相关 + 轻互动」')),
+              h('input', {
+                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0, max: 20,
+                value: minScoreDraft ?? '',
+                onChange: (e) => setMinScoreDraft(e.target.value),
+                onBlur: () => { const v = Math.max(0, Math.min(Number(minScoreDraft) || 0, 20)); setMinScoreDraft(String(v)); patch({ replyMinScore: v }, '回复线') },
+              }))) : null,
+        ),
+
+        h('div', { 'data-bd-sec': '' },
+          h('div', { 'data-bd-h': '' }, '只评论娱乐视频'),
+h(ToggleRow, {
+            label: '只评论娱乐视频',
+            note: '默认开；学习/技术/教程/科普/评测类只写进报告，不发评论（也不三连）',
+            on: sw('funOnly'),
+            onChange: (v) => patch({ funOnly: v }, '只评论娱乐视频'),
+          }),
+          /* ⭐ 标签规则（2026-10-19）：白名单命中 = 一定评论；黑名单命中 = 一定不评论。都比分区优先 */
+          sw('funOnly') ? h('div', { 'data-bd-sub': '' },
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, '标签白名单（一行一个）'),
+                h('div', { 'data-bd-note': '' }, '命中就一定评论 —— 哪怕分区是「知识 / 科技」。例如：梗、小剧场、大肥鱼')),
+              h('textarea', {
+                'data-bd-input': '', 'data-bd-area': '', rows: 3,
+                placeholder: '梗\n小剧场\n大肥鱼',
+                value: allowTagsDraft ?? '',
+                onChange: (e) => setAllowTagsDraft(e.target.value),
+                onBlur: () => saveTagList('funTagsAllow', allowTagsDraft, '标签白名单'),
+              })),
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, '标签黑名单（一行一个）'),
+                h('div', { 'data-bd-note': '' }, '命中就一条都不发、也不三连 —— 哪怕分区是「动画 / 搞笑」。例如：教程、科普、编程')),
+              h('textarea', {
+                'data-bd-input': '', 'data-bd-area': '', rows: 3,
+                placeholder: '教程\n科普\n编程',
+                value: blockTagsDraft ?? '',
+                onChange: (e) => setBlockTagsDraft(e.target.value),
+                onBlur: () => saveTagList('funTagsBlock', blockTagsDraft, '标签黑名单'),
+              }))) : null,
+          h(ToggleRow, {
+            label: '本地转写没字幕的视频',
+            note: '默认关；开了以后，没字幕的视频会在本机转写一遍（不花 API 钱）',
+            on: sw('transcribe'),
+            onChange: (v) => patch({ transcribe: v }, '本地转写'),
+          }),
+          sw('transcribe') ? h('div', { 'data-bd-sub': '' },
+            h('div', { 'data-bd-row': '' },
+              h('button', { 'data-bd-btn': '', disabled: busy === 'asr', onClick: onInstallAsr },
+                st.asrReady ? '重装转写依赖' : '装转写依赖'),
+              h('div', { 'data-bd-note': '' },
+                !st.asrReady ? '还没装 —— 现在开着也没用：没字幕的视频会被跳过（报告里会写"因无字幕跳过 N 条"）'
+                  : (st.asrModelReady ? '环境和模型都好了' : '环境好了；模型会在第一次转写时自动下（几百 MB）'))),
+            h('div', { 'data-bd-note': '' },
+              '点一下就好：建一个独立环境、装 faster-whisper + yt-dlp，并把 Whisper 模型也下好',
+              h('br'),
+              '（模型默认 small，几百 MB，走国内镜像；装一次就够了）'),
+            st.asrTail ? h('div', null,
+              h('div', { 'data-bd-note': '' }, st.asrInstalling ? '正在装转写依赖（进度）：' : '转写依赖的日志（末尾）—— 只有「没字幕的视频」用得到它：'),
+              h('pre', { 'data-bd-pre': '' }, st.asrTail)) : null) : null,
+        ),
+
+        h('div', { 'data-bd-sec': '' },
+          h('div', { 'data-bd-h': '' }, '顺手三连'),
+          /* ⭐ 顺手三连（2026-10-19）：默认关。关着时下面全收起 —— 它不是"额度 0"，是根本没这功能 */
+          h(ToggleRow, {
+            label: '顺手三连（点赞 + 投币 + 收藏）',
+            note: '默认关；开着之后只给「这一轮挑中、要发评论」的那几条三连，并受每天上限约束',
+            on: sw('tripleOn'),
+            onChange: (v) => patch({ tripleOn: v }, '顺手三连'),
+          }),
+          sw('tripleOn') ? h('div', { 'data-bd-sub': '' },
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, '每条投几枚币'),
+                h('div', { 'data-bd-note': '' }, '硬币是钱；默认 1 枚')),
+              h('select', {
+                'data-bd-input': '', value: String(tripleCoin ?? '1'),
+                onChange: (e) => { setTripleCoin(e.target.value); patch({ tripleCoin: Number(e.target.value) }, '投币数') },
+              },
+                h('option', { value: '1' }, '1 枚'),
+                h('option', { value: '2' }, '2 枚'))),
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, '每天最多三连几条'),
+                h('div', { 'data-bd-note': '' }, '**独立配置**（不跟「每天挑几条」联动）；填 0 = 不三连')),
+              h('input', {
+                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0, max: 50,
+                value: triplePerDayDraft ?? '',
+                onChange: (e) => setTriplePerDayDraft(e.target.value),
+                onBlur: () => { const n = Math.max(0, Math.min(Number(triplePerDayDraft) || 0, 50)); setTriplePerDayDraft(String(n)); patch({ triplePerDay: n }, '每天三连上限') },
+              })),
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, '收藏到哪个收藏夹'),
+                h('div', { 'data-bd-note': '' },
+                  favErr ? `拉收藏夹失败：${favErr}` : '选具体收藏夹会改走「点赞 + 投币 + 收藏」分步（官方三连只能进默认夹）')),
+              h('select', {
+                'data-bd-input': '', style: { maxWidth: '220px' },
+                value: String(tripleFav ?? '0'),
+                onChange: (e) => { setTripleFav(e.target.value); patch({ tripleFavMediaId: Number(e.target.value) }, '收藏夹') },
+              },
+                h('option', { value: '0' }, '默认收藏夹'),
+                ...(favFolders || []).map((f) => h('option', { key: String(f.id), value: String(f.id) },
+                  `${f.title}${f.private ? '（私密）' : ''} · ${f.count} 个`)))),
+            h(ToggleRow, {
+              label: '评论里说明「已三连」',
+              note: '只在三连真的成功时才说；失败就一个字都不提',
+              on: sw('tripleSay'),
+              onChange: (v) => patch({ tripleSay: v }, '三连说明'),
+            }),
+            h('div', { 'data-bd-note': '' }, `今天已经三连 ${st.tripledToday ?? 0} 条`)) : null,
+        ),
+
+
+        /* ══ 环境 ══ */
+        h('div', { 'data-bd-group': '' },
+          h('div', { 'data-bd-group-h': '' }, '环境', h('span', { 'data-bd-group-sub': '' }, '用哪个模型、装在哪'))),
+
+        /* ── 这一轮用哪个模型 ── */
+        (() => {
+          /* ⭐ 2026-10-19 加：给「刷B站那一轮」单独指定模型（只影响 headless 那一轮，不动你平时的对话模型）。
+           *    实现：overlay 里覆盖 `agent-default-model`（见 index.js 的 ensureOverlay）。
+           *    ⚠️ 模型列表来自宿主 llm 服务；拿不到就退回两个手填框，**不能因为列表拿不到就卡住**。 */
+          const cur = modelDraft || ''
+          const opts = []
+          for (const p of (catalog?.providers || [])) {
+            // ⭐ 宿主标了 usable:false 的通道（比如没配 Key 的 deepseek-official）后面挂个「缺 Key」
+            const bad = p.usable === false
+            for (const m of (p.models || [])) {
+              opts.push({
+                v: p.provider + '\u0000' + m.id,
+                label: `${p.name || p.provider} · ${m.name || m.id}${bad ? '（缺 Key）' : ''}`,
+              })
+            }
+          }
+          const curProv = (catalog?.providers || []).find((p) => p.provider === (modelDraft || '').split('\u0000')[0])
+          if (cur && !opts.some((o) => o.v === cur)) {
+            const [p, m] = cur.split('\u0000')
+            opts.unshift({ v: cur, label: `${p} / ${m}（当前）` })
+          }
+          const [curP, curM] = cur ? cur.split('\u0000') : ['', '']
+          return h('div', { 'data-bd-sec': '' },
+            h('div', { 'data-bd-h': '' }, '这一轮用哪个模型'),
+            h('select', {
+              'data-bd-input': '', value: cur,
+              onChange: (e) => {
+                const v = e.target.value
+                setModelDraft(v)
+                if (!v) patch({ modelProvider: '', modelName: '' }, '模型')
+                else { const [p, m] = v.split('\u0000'); patch({ modelProvider: p, modelName: m }, '模型') }
+              },
+            },
+              h('option', { value: '' }, '跟 profile 默认（不改）'),
+              ...opts.map((o) => h('option', { key: o.v, value: o.v }, o.label))),
+            curProv && curProv.usable === false
+              ? h('div', { 'data-bd-msg': '', 'data-warn': '' }, curProv.note || '这个通道现在跑不了')
+              : (curProv && curProv.note ? h('div', { 'data-bd-msg': '' }, curProv.note) : null),
+            catalog === null ? h('div', { 'data-bd-note': '' }, '正在读宿主的模型列表…') : null,
+            (catalog && !opts.length) ? h('div', { 'data-bd-note': '' }, '拿不到模型列表（宿主没报错误就手填）：') : null,
+            h('div', { 'data-bd-label': '' }, '或者手填（provider / model）'),
+            h('div', { 'data-bd-row': '' },
+              h('input', {
+                'data-bd-input': '', value: curP, placeholder: 'provider（如 deepseek-official）',
+                onChange: (e) => setModelDraft(e.target.value + '\u0000' + curM),
+                onBlur: () => { const p = String(curP || '').trim(); if (p) patch({ modelProvider: p, modelName: curM }, '模型'); else patch({ modelProvider: '', modelName: '' }, '模型') },
+              }),
+              h('input', {
+                'data-bd-input': '', value: curM, placeholder: 'model（如 deepseek-flash）',
+                onChange: (e) => setModelDraft(curP + '\u0000' + e.target.value),
+                onBlur: () => { const m = String(curM || '').trim(); if (m) patch({ modelProvider: curP, modelName: m }, '模型'); else patch({ modelProvider: '', modelName: '' }, '模型') },
+              })),
+            h('div', { 'data-bd-note': '' },
+              st.model ? `这一轮跑：${st.model.provider} / ${st.model.model}` : '这一轮跑：跟 profile 默认'),
+            h('div', { 'data-bd-note': '' }, '⚠️ 只影响「刷B站那一轮」用的模型，不改你平时的对话模型；换贵的模型会把那一轮的成本抬上去。'),
+            h('div', { 'data-bd-note': '' },
+              '⭐ 桌面端的 provider（比如 qodercn）默认不在 headless 里 —— 插件会自动把本机对应的 provider 插件挂进那一轮，不用你装东西。'))
+        })(),
         /* ── 环境与账号 ── */
         h('div', { 'data-bd-sec': '' },
           h('div', { 'data-bd-h': '' }, '环境与账号'),
@@ -1157,7 +1189,6 @@ window.__ModuleLoader__.load({
               '手机 B站 → 我的 → 扫一扫。',
               h('br'),
               '确认时选「记住我 / 长期」那张 —— 选 24 小时的话，明天就得重扫。')) : null),
-
         /* ── 它是怎么干活的（给他看的） ── */
         h('div', { 'data-bd-sec': '' },
           h('div', { 'data-bd-h': '' }, '它的地盘'),
