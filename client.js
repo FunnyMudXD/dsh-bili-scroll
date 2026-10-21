@@ -923,7 +923,7 @@ window.__ModuleLoader__.load({
           h('div', { 'data-bd-row': '' },
             h('button', { 'data-bd-btn': '', 'data-primary': '', disabled: Boolean(busy), onClick: onSaveText },
               cfg.pickSource === 'favorites' ? '保存工作区' : '保存关键词 / 工作区'),
-            msg ? h('div', { 'data-bd-msg': '', 'data-good': msgTone === 'good' ? '' : undefined, 'data-warn': msgTone === 'warn' ? '' : undefined }, msg) : null)),
+            msg ? h('div', { 'data-bd-msg': '', 'data-good': msgTone === 'good' ? '' : undefined, 'data-warn': msgTone === 'warn' ? '' : undefined }, msg) : null),
           h('div', { 'data-bd-label': '' }, '日报写多细'),
           h('select', {
             'data-bd-input': '', value: rl ?? 'full',
@@ -932,6 +932,8 @@ window.__ModuleLoader__.load({
             h('option', { value: 'full' }, '完整 —— 每条：标题 / UP / 为什么值得（默认）'),
             h('option', { value: 'brief' }, '薄 —— 每条一两行，只留值不值得 + 链接'),
             h('option', { value: 'off' }, '不写 —— 只发评论，不生成日报文件')),
+        ),
+
         h(Card, { title: '评论', summary: `${cfg.autoComment ? '开' : '关'} · 每轮 ${cfg.commentPerRound}` },
           h(ToggleRow, {
             label: '自动发评论',
