@@ -901,11 +901,14 @@ window.__ModuleLoader__.load({
               '🎯 口味画像：' + (favInfo.topTags || []).slice(0, 12).map((x) => `${x.tag}(${x.count})`).join('、')
               + ((favInfo.topZones || []).length ? ` ｜ 常看分区：${favInfo.topZones.map((z) => z.zone).join('、')}` : '')) : null,
             h('div', { 'data-bd-note': '' }, '⚠️ 选了「按收藏夹口味」就不再使用下面的关键词；画像拿不到时会自动退回关键词')) : null,
-          h('div', { 'data-bd-label': '' }, '关键词（只在上面选「按关键词」时用）'),
-          h('textarea', {
-            'data-bd-input': '', rows: 5, placeholder: '一行一个关键词；留空用内置那几组',
-            value: kws ?? '', onChange: (e) => setKws(e.target.value),
-          }),
+          /* ⭐ 2026-10-21：按收藏夹口味挑的时候，关键词这一轮根本不用 ⇒ 直接不显示 */
+          cfg.pickSource === 'favorites' ? null : h(React.Fragment, null,
+            h('div', { 'data-bd-label': '' }, '关键词'),
+            h('textarea', {
+              'data-bd-input': '', rows: 5, placeholder: '一行一个关键词；留空用内置那几组',
+              value: kws ?? '', onChange: (e) => setKws(e.target.value),
+            }),
+          ),
           h('div', { 'data-bd-label': '' }, '工作区（它按这里的 AGENTS.md 认设定）'),
           h('input', {
             'data-bd-input': '', value: ws ?? '',
@@ -916,6 +919,11 @@ window.__ModuleLoader__.load({
             '⭐ 想让它按你的设定说话，这里要填你自己平时用的那个工作区（放 AGENTS.md 的那个目录）；',
             h('br'),
             '留空不等于"用你的工作区" —— 那是不读设定、按中性说话（以前会去猜 dsh 进程自己的目录，容易读错人设）。'),
+          /* ⭐ 2026-10-21：保存挪到「要保存的那两项」正下方（以前挂在日报下面，看着像在保存日报） */
+          h('div', { 'data-bd-row': '' },
+            h('button', { 'data-bd-btn': '', 'data-primary': '', disabled: Boolean(busy), onClick: onSaveText },
+              cfg.pickSource === 'favorites' ? '保存工作区' : '保存关键词 / 工作区'),
+            msg ? h('div', { 'data-bd-msg': '', 'data-good': msgTone === 'good' ? '' : undefined, 'data-warn': msgTone === 'warn' ? '' : undefined }, msg) : null)),
           h('div', { 'data-bd-label': '' }, '日报写多细'),
           h('select', {
             'data-bd-input': '', value: rl ?? 'full',
@@ -924,9 +932,6 @@ window.__ModuleLoader__.load({
             h('option', { value: 'full' }, '完整 —— 每条：标题 / UP / 为什么值得（默认）'),
             h('option', { value: 'brief' }, '薄 —— 每条一两行，只留值不值得 + 链接'),
             h('option', { value: 'off' }, '不写 —— 只发评论，不生成日报文件')),
-          h('div', { 'data-bd-row': '' },
-            h('button', { 'data-bd-btn': '', 'data-primary': '', disabled: Boolean(busy), onClick: onSaveText }, '保存'),
-            msg ? h('div', { 'data-bd-msg': '', 'data-good': msgTone === 'good' ? '' : undefined, 'data-warn': msgTone === 'warn' ? '' : undefined }, msg) : null)),
         h(Card, { title: '评论', summary: `${cfg.autoComment ? '开' : '关'} · 每轮 ${cfg.commentPerRound}` },
           h(ToggleRow, {
             label: '自动发评论',
@@ -945,7 +950,16 @@ window.__ModuleLoader__.load({
                 onChange: (e) => setPerRound(e.target.value),
                 // ⭐ 0 是合法值（= 这一轮不发评论）；范围与 index.js 的 clampPatch 一致（0–20）
                 onBlur: () => { const n = Math.max(0, Math.min(Number(perRound) || 0, 20)); setPerRound(String(n)); patch({ commentPerRound: n }, '每轮几条评论') },
-              })),
+              }))) : null,
+          /* ⭐ 评论里 @ 不 @ 你（2026-10-20）：默认关 —— 评论就是"人设看完的观点"，不是来喊你的 */
+          h(ToggleRow, {
+            label: '评论里 @ 我',
+            note: '默认关：评论写成「看完的观点」，不 @ 任何人；打开才回到"喊你来看 + 求夸/求摸头"',
+            on: cfg.commentAtOwner === true,
+            onChange: (v) => patch({ commentAtOwner: v }, '评论里 @ 我'),
+          }),
+          /* ⭐ 2026-10-21：@ 名单跟着「评论里 @ 我」走 —— 开关没开时这一栏根本用不上 */
+          cfg.commentAtOwner === true ? h('div', { 'data-bd-sub': '' },
             h('div', { 'data-bd-label': '' }, '要 @ 谁（B站 昵称，可多个）· 只在「评论里 @ 我」开着时用'),
             h('textarea', {
               'data-bd-input': '', rows: 3,
@@ -963,14 +977,8 @@ window.__ModuleLoader__.load({
               (st.mentions && st.mentions.length)
                 ? `这一轮会分别 @：${st.mentions.map((n) => '@' + n).join(' ')}`
                 : '留空 = 不 @ 任何人（评论照样发）'),
-            h('div', { 'data-bd-note': '' }, 'B站 的 @ 是纯文本：正文里写 `@昵称` 才会真的圈到人；多个就写多个，最多 8 个')) : null,
-          /* ⭐ 评论里 @ 不 @ 你（2026-10-20）：默认关 —— 评论就是"人设看完的观点"，不是来喊你的 */
-          h(ToggleRow, {
-            label: '评论里 @ 我',
-            note: '默认关：评论写成「看完的观点」，不 @ 任何人；打开才回到"喊你来看 + 求夸/求摸头"',
-            on: cfg.commentAtOwner === true,
-            onChange: (v) => patch({ commentAtOwner: v }, '评论里 @ 我'),
-          }),
+            h('div', { 'data-bd-note': '' }, 'B站 的 @ 是纯文本：正文里写 `@昵称` 才会真的圈到人；多个就写多个，最多 8 个')
+          ) : null,
           h('div', { 'data-bd-label': '' }, '投递方式（评论 还是 私信）'),
           h('select', {
             'data-bd-input': '', value: dmMode ?? 'off',
