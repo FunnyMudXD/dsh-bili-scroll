@@ -102,12 +102,25 @@ window.__ModuleLoader__.load({
   border-bottom:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.18));}
 [data-bd-group]:first-child > [data-bd-group-h]{margin-top:0;}
 [data-bd-group-sub]{font-size:11.5px;font-weight:400;color:var(--dsw-alias-label-tertiary,#9aa0a6);}
-[data-bd-sec]{display:flex;flex-direction:column;gap:12px;box-sizing:border-box;width:100%;
+[data-bd-sec]{display:flex;flex-direction:column;gap:0;box-sizing:border-box;width:100%;
   margin:0;
-  padding:16px 18px 18px;border-radius:14px;
+  padding:10px 14px 12px;border-radius:14px;
   border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.18));
   background:var(--dsw-alias-bg-module-platform,rgba(128,128,128,.05));}
-[data-bd-h]{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;letter-spacing:.02em;}
+/* ══════════════ 可折叠卡片头（2026-10-21） ══════════════
+ * 收起时只有一行「标题 + 当前状态 + ▾」，高度统一 ⇒ 两列栅格不再被撑歪 */
+[data-bd-sec][data-open]{padding:14px 16px 16px;}
+[data-bd-cardhead]{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
+  border-radius:8px;outline:none;padding:1px 0;}
+[data-bd-cardhead]:hover [data-bd-h]{opacity:.82;}
+[data-bd-cardhead]:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-brand-primary,#4d6bfe);}
+[data-bd-caret]{flex:none;font-size:11px;line-height:1;opacity:.5;
+  transition:transform .16s ease;}
+[data-bd-sec][data-open] [data-bd-caret]{transform:rotate(180deg);}
+[data-bd-cardbody]{display:flex;flex-direction:column;gap:12px;padding-top:13px;}
+[data-bd-log]{gap:10px;}
+[data-bd-h]{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;letter-spacing:.02em;
+  transition:opacity .15s ease;}
 [data-bd-h]:before{content:"";flex:none;width:3px;height:13px;border-radius:2px;
   background:var(--dsw-alias-brand-primary,#4d6bfe);opacity:.9;}
 /* ══════════════ 行 / 字 ══════════════ */
@@ -217,6 +230,42 @@ window.__ModuleLoader__.load({
           h('div', { 'data-bd-label': '' }, label),
           note ? h('div', { 'data-bd-note': '' }, note) : null),
         h(Switch, { on, onChange, disabled }))
+    }
+
+    /**
+     * ⭐ 可折叠卡片（2026-10-21 用户："设置部分结构还是很诡异"）
+     * =====================================================================
+     * 症状：卡片高度从 90px 到 470px 不等，两列栅格每行都被高的那张撑开，
+     *       矮卡下面留一大片空白 —— 越往下越像"打补丁"。
+     * 解法：每张卡**默认收起**，只留「标题 + 当前状态」一行（高度统一 ⇒ 栅格不歪）；
+     *       想看细节点标题展开。展开状态记在 localStorage，下次还是那样。
+     *   ── 这也就是当初选「渐进披露」时说的那半截。
+     */
+    function Card({ title, summary, children }) {
+      const KEY = 'dsh-bili-scroll:card:' + title
+      const [open, setOpen] = React.useState(() => {
+        try { return localStorage.getItem(KEY) === '1' } catch { return false }
+      })
+      const toggle = () => setOpen((v) => {
+        const nx = !v
+        try { localStorage.setItem(KEY, nx ? '1' : '0') } catch { /* 存不了就只活在这一屏 */ }
+        return nx
+      })
+      return h('div', { 'data-bd-sec': '', 'data-open': open ? '' : undefined },
+        h('div', {
+          'data-bd-cardhead': '', role: 'button', tabIndex: 0,
+          'aria-expanded': open ? 'true' : 'false',
+          title: open ? '收起' : '展开',
+          onClick: toggle,
+          onKeyDown: (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() }
+          },
+        },
+          h('div', { 'data-bd-h': '' }, title),
+          summary ? h('span', { 'data-bd-chip': '' }, summary) : null,
+          h('div', { 'data-bd-grow': '' }),
+          h('span', { 'data-bd-caret': '' }, '▾')),
+        open ? h('div', { 'data-bd-cardbody': '' }, children) : null)
     }
 
     /**
@@ -764,8 +813,7 @@ window.__ModuleLoader__.load({
           h('div', { 'data-bd-group-h': '' }, '运行', h('span', { 'data-bd-group-sub': '' }, '什么时候跑、跑多少'))),
 
         /* ── 定时 ── */
-        h('div', { 'data-bd-sec': '' },
-          h('div', { 'data-bd-h': '' }, '什么时候自己跑'),
+        h(Card, { title: '什么时候自己跑', summary: cfg.peakValley ? '峰谷 · 开' : '只手动' },
           h(ToggleRow, {
             label: '峰谷时段自动刷',
             note: '只在谷时跑 —— 工作日 12:00–14:00 与 18:00 之后（整个周末也算谷时）；关了就只能手动跑',
@@ -781,8 +829,7 @@ window.__ModuleLoader__.load({
               onChange: (v) => patch({ [k]: v }, win[k].label),
             }))) : null),
         /* ── 一轮挑几条 ── */
-        h('div', { 'data-bd-sec': '' },
-          h('div', { 'data-bd-h': '' }, '一轮挑几条'),
+        h(Card, { title: '一轮挑几条', summary: `${cfg.perDay} 条/天 · ${Number(cfg.perRound) || '不限'}/轮` },
           h('div', { 'data-bd-row': '' },
             h('div', { 'data-bd-grow': '' },
               h('div', { 'data-bd-label': '' }, '每天最多挑几条（全天总量）'),
@@ -812,8 +859,7 @@ window.__ModuleLoader__.load({
           h('div', { 'data-bd-group-h': '' }, '内容', h('span', { 'data-bd-group-sub': '' }, '挑什么、说什么'))),
 
         /* ── 关注什么 / 在哪儿刷 ── */
-        h('div', { 'data-bd-sec': '' },
-          h('div', { 'data-bd-h': '' }, '关注什么'),
+        h(Card, { title: '关注什么', summary: cfg.pickSource === 'favorites' ? '按收藏夹口味' : `关键词 ${(cfg.keywords || []).length} 个` },
           /* ⭐ 挑片来源二选一（2026-10-20）：关键词 / 收藏夹口味画像 */
           h('div', { 'data-bd-row': '' },
             h('div', { 'data-bd-grow': '' },
@@ -881,8 +927,7 @@ window.__ModuleLoader__.load({
           h('div', { 'data-bd-row': '' },
             h('button', { 'data-bd-btn': '', 'data-primary': '', disabled: Boolean(busy), onClick: onSaveText }, '保存'),
             msg ? h('div', { 'data-bd-msg': '', 'data-good': msgTone === 'good' ? '' : undefined, 'data-warn': msgTone === 'warn' ? '' : undefined }, msg) : null)),
-        h('div', { 'data-bd-sec': '' },
-          h('div', { 'data-bd-h': '' }, '评论'),
+        h(Card, { title: '评论', summary: `${cfg.autoComment ? '开' : '关'} · 每轮 ${cfg.commentPerRound}` },
           h(ToggleRow, {
             label: '自动发评论',
             note: '默认关；开了之后会在挑中的视频下面留一条评论（写「看完的观点」）。要不要 @ 你，看上面的「评论里 @ 我」',
@@ -946,8 +991,7 @@ window.__ModuleLoader__.load({
             h('div', { 'data-bd-note': '' }, '⚠️ 建议先让这个号和收件人互关：B站 对「陌生人私信」会限流，还可能不弹提醒')) : null,
         ),
 
-        h('div', { 'data-bd-sec': '' },
-          h('div', { 'data-bd-h': '' }, '回复评论'),
+        h(Card, { title: '回复评论', summary: `${cfg.replyToComments ? '开' : '关'} · 每轮 ${cfg.replyPerRound}` },
           h(ToggleRow, {
             label: '回复评论（回你评论区里的回复）',
             note: '默认关；开了之后宿主会按「最近 N 天」扫自己发过的评论、拉到别人给我的回复并按规则打分，够分的才交给这一轮去回（模型不再自己翻楼）',
@@ -987,8 +1031,7 @@ window.__ModuleLoader__.load({
               }))) : null,
         ),
 
-        h('div', { 'data-bd-sec': '' },
-          h('div', { 'data-bd-h': '' }, '只评论娱乐视频'),
+        h(Card, { title: '只评论娱乐视频', summary: cfg.funOnly ? '只评论娱乐' : '不限类型' },
 h(ToggleRow, {
             label: '只评论娱乐视频',
             note: '默认开；学习/技术/教程/科普/评测类只写进报告，不发评论（也不三连）',
@@ -1041,8 +1084,7 @@ h(ToggleRow, {
               h('pre', { 'data-bd-pre': '' }, st.asrTail)) : null) : null,
         ),
 
-        h('div', { 'data-bd-sec': '' },
-          h('div', { 'data-bd-h': '' }, '顺手三连'),
+        h(Card, { title: '顺手三连', summary: cfg.tripleOn ? `开 · ${cfg.triplePerDay}/天` : '关' },
           /* ⭐ 顺手三连（2026-10-19）：默认关。关着时下面全收起 —— 它不是"额度 0"，是根本没这功能 */
           h(ToggleRow, {
             label: '顺手三连（点赞 + 投币 + 收藏）',
@@ -1121,8 +1163,7 @@ h(ToggleRow, {
             opts.unshift({ v: cur, label: `${p} / ${m}（当前）` })
           }
           const [curP, curM] = cur ? cur.split('\u0000') : ['', '']
-          return h('div', { 'data-bd-sec': '' },
-            h('div', { 'data-bd-h': '' }, '这一轮用哪个模型'),
+          return h(Card, { title: '这一轮用哪个模型', summary: st.model ? st.model.model : '跟默认' },
             h('select', {
               'data-bd-input': '', value: cur,
               onChange: (e) => {
@@ -1158,8 +1199,7 @@ h(ToggleRow, {
               '⭐ 桌面端的 provider（比如 qodercn）默认不在 headless 里 —— 插件会自动把本机对应的 provider 插件挂进那一轮，不用你装东西。'))
         })(),
         /* ── 环境与账号 ── */
-        h('div', { 'data-bd-sec': '' },
-          h('div', { 'data-bd-h': '' }, '环境与账号'),
+        h(Card, { title: '环境与账号', summary: `${st.venvReady ? '环境好' : '没装'} · ${st.loggedIn ? '已登录' : '未登录'}` },
           h('div', { 'data-bd-row': '' },
             h('div', { 'data-bd-grow': '' },
               h('div', { 'data-bd-label': '' }, 'dsh 路径（找不到 dsh 时才用）'),
@@ -1190,8 +1230,7 @@ h(ToggleRow, {
               h('br'),
               '确认时选「记住我 / 长期」那张 —— 选 24 小时的话，明天就得重扫。')) : null),
         /* ── 它是怎么干活的（给他看的） ── */
-        h('div', { 'data-bd-sec': '' },
-          h('div', { 'data-bd-h': '' }, '它的地盘'),
+        h(Card, { title: '它的地盘', summary: st.homeCustom ? '自定义' : '默认' },
           h('div', { 'data-bd-kv': '' },
             `家目录：${st.home}`,
             h('br'),
