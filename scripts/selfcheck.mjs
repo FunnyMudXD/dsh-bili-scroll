@@ -100,6 +100,14 @@ ok('verifyRecent 支持 force（手动复核不吃 7 天缓存）', /force = fal
   ok('宿主把手动复核标成 force',
     /verifyRecent\(stateDir, \{ log, force: why === 'manual' \}\)/.test(readFileSync(R + 'index.js', 'utf8')))
 }
+// ── 17) 复核是只读的 + 报告里的复核段不重复堆（2026-10-21） ──
+{
+  const vm = readFileSync(R + 'lib/verify.mjs', 'utf8')
+  ok('复核不发评论、不发私信（只有 GET）',
+    !/bili_reply|\/x\/v2\/reply\/add|send_msg|method:\s*'POST'/.test(vm))
+  ok('报告的复核段是覆盖式写入（不再每次 append 一段）',
+    /export function appendVerifyToReport/.test(vm) && /old\.replace\(\/\^## 评论复核/.test(vm))
+}
 ok('三个分组标题都在', ['运行', '内容', '环境'].every((x) => flat.includes(x)))
 ok('分组标题横跨两列（栅格 + group-h）', /data-bd-group-h/.test(csrc) && /grid-column:1\/-1/.test(csrc))
 ok('日志块三个按钮（跟随/刷新/打开）', flat.includes('跟随最新') && flat.includes('刷新') && flat.includes('打开日志文件'))
@@ -333,11 +341,14 @@ const iCap0 = await inter.execute({ bvid: 'BV1bbbbbbbbb' }, {})
 ok('日上限 0 → 拒绝三连', iCap0.blocked === true, String(iCap0.hint || '').slice(0, 40))
 // ── 9) 语气人设 + 挑片来源（2026-10-20） ──
 ok('评论语气规则在（撒娇求夸 或 观点+热梗）', /求夸奖|求摸摸头|热梗/.test(promptTrip))
+ok('提示词给了长度建议（20～50 字）', /20～50 字/.test(prompt))
+ok('提示词点名了"别端着/大白话"', /别端着/.test(prompt) && /大白话/.test(prompt))
+ok('宿主会把"最近用过的开头"喂回去防复读', /recentMouths/.test(readFileSync(R + 'index.js', 'utf8')))
 ok('默认不 @ 使用者 ⇒ 提示词明说「不要 @ 任何人」', /不要 @ 任何人/.test(prompt) || /不 @ 任何人/.test(prompt))
-ok('默认模式 ⇒ 写人设自己的观点', /写你自己的想法|自己的观点/.test(prompt))
+ok('默认模式 ⇒ 写"被哪一下戳到 + 你的反应"', /被哪一下戳到/.test(prompt) && /你的反应/.test(prompt))
 ok('默认模式 ⇒ 允许带网络热梗', /热梗/.test(prompt))
 ok('提示词要求加颜文字', /颜文字/.test(promptTrip))
-ok('提示词禁止概括视频内容', /不要概括视频内容/.test(promptTrip))
+ok('提示词禁止概括视频内容', /不要概括视频内容|复述剧情/.test(promptTrip))
 const stPick = await tools.find((t) => t.name === 'bili_status').execute({}, {})
 ok('/status 暴露 pickSource', stPick?.pickSource === 'keywords' || stPick?.pickSource === 'favorites', String(stPick?.pickSource))
 await cfgTool.execute({ patch: { pickSource: 'favorites', biliUid: 334952458 } }, {})
@@ -416,11 +427,11 @@ process.env.DSH_PROFILE_DIR = undefined
 // ── 10) 不 @ 模式（2026-10-20 用户最终要求：评论 = 人设自己的观点） ──
 //    注：自检里 config.json 不带 commentAtOwner ⇒ 默认就是「不 @」模式，直接看第一轮那份提示词
 ok('不 @ 模式 ⇒ 明说「不要 @ 任何人」', /不要 @ 任何人/.test(prompt))
-ok('不 @ 模式 ⇒ 写人设自己的观点', /写你自己的想法/.test(prompt))
+ok('不 @ 模式 ⇒ 写"被哪一下戳到 + 你的反应"', /被哪一下戳到/.test(prompt))
 ok('不 @ 模式 ⇒ 允许热梗但要贴切', /热梗/.test(prompt) && /贴切/.test(prompt))
-ok('不 @ 模式 ⇒ 不复述视频内容', /不要复述/.test(prompt) || /不要概括视频内容/.test(prompt))
+ok('不 @ 模式 ⇒ 不复述/不剧透', /复述剧情|不要复述/.test(prompt))
 
-ok('不 @ 模式 ⇒ 不叫「主人」', /不叫「主人」/.test(prompt))
+ok('不 @ 模式 ⇒ 不叫「主人」', /不叫「主人」|别叫「主人」/.test(prompt))
 
 console.log(outs.join('\n'))
 const bad = outs.filter((x) => x.includes('❌')).length
